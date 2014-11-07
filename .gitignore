@@ -1,0 +1,11 @@
+# datasets
+*.zip
+
+# python caches
+*.pyc
+
+# mac stuff
+.DS_Store
+
+# workflow results (large!!!)
+workflow_results/

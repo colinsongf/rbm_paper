@@ -29,7 +29,7 @@ def main():
     X_mnb = util.create_minibatches(X_mod, None, 20)
 
     cost, time, hist = rbm.train(
-        X_mnb, 2, eps=0.05, spars=0.15, spars_cost=2.0, pcd=False, steps=20)
+        X_mnb, 2, eps=0.05, spars=0.15, spars_cost=2.0, pcd=True, steps=1)
 
     util.display_RBM(rbm, 32, 24)
 

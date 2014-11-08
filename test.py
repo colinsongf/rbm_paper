@@ -31,13 +31,7 @@ def main():
     cost, time, hist = rbm.train(
         X_mnb, 2, eps=0.05, spars=0.15, spars_cost=2.0, pcd=False, steps=20)
 
-    np.set_printoptions(formatter={'float': '{: 0.3f}'.format})
-    log.info('Cost: \n%r', cost)
-    log.info('Time: \n%r', time)
-    log.info('Hist: \n%r', hist)
-
-    util.pickle_zip(rbm, 'testing.zip')
-    util.unpickle_unzip('testing.zip')
+    util.display_RBM(rbm, 32, 24)
 
 
 if __name__ == '__main__':

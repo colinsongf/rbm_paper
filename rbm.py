@@ -90,17 +90,18 @@ class RBM():
 
     def hid_given_vis(self, vis):
         """
-        Creates and returns Symbolic Theano variables for the
-        probabilities and activations
-        of the hidden layer, given the activations of the visible
-        layer.
+        Calculates the hidden layer probabilities and
+        activations given the visible layer activations.
 
-        :param vis: Symbolic variable for the visible layer. Expecting
-            a matrix of (N, n_vis) shape.
+        Returns a tuple of form (hid_prb, hid_act).
+        Both are numpy arrays of shape (N, n_hid).
+
+        :param vis: State of the visible layer, a numpy
+            array of shape (N, n_vis)
         """
 
         if getattr(self, 'hid_given_vis_f', None) is None:
-            
+
             vis_input = T.matrix('vis_input')
             hid_prb = T.nnet.sigmoid(T.dot(vis_input, self.W) + self.b_hid)
             hid_act = self.theano_rng.binomial(
@@ -111,31 +112,51 @@ class RBM():
 
         return self.hid_given_vis_f(vis)
 
-    def step_given_hid(self, hid):
+    def steps_given_hid(self, hid, steps):
         """
-        Creates and returns symbolic Theano variables for
+        Calculates
         visible and hidden layer reconstructions (probabilities
         and activations) given the state of the hidden layer.
 
         Essentially it performs a single Gibbs step.
 
-        :param hid: Symbolic Theano variable for the
-            hidden layer, a matrix of (N, n_hid) shape
-            is expected.
+        :param hid: State of the hidden layer, a numpy
+            array of shape (N, n_hid)
+
+        :param steps: The number of Gibbs sampling steps
+            to perform.
         """
 
-        #   calculate visible layer probabilities and activations
-        vis_prb = T.nnet.sigmoid(T.dot(hid, self.W.T) + self.b_vis)
-        vis_act = self.theano_rng.binomial(
-            n=1, p=vis_prb, size=vis_prb.shape, dtype=theano.config.floatX)
+        if getattr(self, 'steps_given_hid_f', None) is None:
 
-        #   calculate hidden layer probabilities and activations
-        hid_prb = T.nnet.sigmoid(T.dot(vis_act, self.W) + self.b_hid)
-        hid_act = self.theano_rng.binomial(
-            n=1, p=hid_prb, size=hid_prb.shape, dtype=theano.config.floatX)
+            def fn(hid_input):
+                #   calculate visible layer probabilities and activations
+                vis_prb = T.nnet.sigmoid(T.dot(hid_input, self.W.T) + self.b_vis)
+                vis_act = self.theano_rng.binomial(
+                    n=1, p=vis_prb, size=vis_prb.shape, dtype=theano.config.floatX)
 
-        #   return everything calculated
-        return (vis_prb, vis_act, hid_prb, hid_act)
+                #   calculate hidden layer probabilities and activations
+                hid_prb = T.nnet.sigmoid(T.dot(vis_act, self.W) + self.b_hid)
+                hid_act = self.theano_rng.binomial(
+                    n=1, p=hid_prb, size=hid_prb.shape, dtype=theano.config.floatX)
+
+                return (vis_prb, vis_act, hid_prb, hid_act)
+
+            #   then we prepare the scan function
+            hid_input = T.matrix('hid_input', dtype=theano.config.floatX)
+            n_steps = T.scalar('n_steps', dtype='int8')
+            (vis_prb, vis_act, hid_prb, hid_act), updates = theano.scan(
+                fn,
+                outputs_info=[None, None, None, hid_input],
+                n_steps=n_steps)
+
+            #   finally we compile the scan function
+            self.steps_given_hid_f = theano.function(
+                [hid_input, n_steps],
+                [vis_prb, vis_act, hid_prb, hid_act],
+                updates=updates)
+
+        return self.steps_given_hid_f(hid, steps)
 
     def train(self, X_mnb, epochs, eps,
               pcd=False, steps=1, spars=None, spars_cost=None,
@@ -177,26 +198,6 @@ class RBM():
 
         log.info('Training RBM, epochs: %d, spars:%r', epochs, spars)
 
-        #   hidden unit activation compiled function
-        hid_given_vis_f = theano.function(
-            [self.input], self.hid_given_vis(self.input))
-
-        #   Gibbs sampling steps compiled function
-        #   first we need some Theano variables for input
-        #   symbolic variable for step input (hidden layer state)
-        hid_input = T.matrix('hid_input', dtype=theano.config.floatX)
-        n_steps = T.scalar('n_steps', dtype='int8')
-        #   then we prepare the scan function
-        (vis_prb, vis_act, hid_prb, hid_act), updates = theano.scan(
-            self.step_given_hid,
-            outputs_info=[None, None, None, hid_input],
-            n_steps=n_steps)
-        #   finally we compile the scan function
-        steps_given_hid_f = theano.function(
-            [hid_input, n_steps],
-            [vis_prb, vis_act, hid_prb, hid_act],
-            updates=updates)
-
         #   compile the cost function for PCD, if we use it
         if pcd:
             cost, updates = self.get_pseudo_likelihood_cost(self.input)
@@ -222,7 +223,7 @@ class RBM():
 
         #   if using PCD, we need the "fantasy particles"
         if pcd:
-            _, neg_start = hid_given_vis_f(X_mnb[0])
+            _, neg_start = self.hid_given_vis(X_mnb[0])
 
         #   iterate through the epochs
         for epoch_ind, epoch in enumerate(range(epochs)):
@@ -235,7 +236,7 @@ class RBM():
                 #   positive statistics
                 #   _prb suffix indicates activation probabilities
                 #   _act suffix indicates binary activation
-                pos_hid_prb, pos_hid_act = hid_given_vis_f(batch)
+                pos_hid_prb, pos_hid_act = self.hid_given_vis(batch)
 
                 #   negative statistics Gibbs sampling start
                 #   depends on whether we are using Persistent CD
@@ -251,8 +252,8 @@ class RBM():
                     n_steps = steps(epoch, epoch_costs)
 
                 #   do Gibbs sampling
-                neg_vis_prb, _, neg_hid_prb, neg_hid_act = steps_given_hid_f(
-                    neg_start, n_steps)
+                neg_vis_prb, _, neg_hid_prb, neg_hid_act = \
+                    self.steps_given_hid(neg_start, n_steps)
                 #   the scan function returns all steps
                 #   we don't need them all
                 neg_hid_act = neg_hid_act[-1]

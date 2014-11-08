@@ -131,14 +131,17 @@ class RBM():
 
             def fn(hid_input):
                 #   calculate visible layer probabilities and activations
-                vis_prb = T.nnet.sigmoid(T.dot(hid_input, self.W.T) + self.b_vis)
+                vis_prb = T.nnet.sigmoid(
+                    T.dot(hid_input, self.W.T) + self.b_vis)
                 vis_act = self.theano_rng.binomial(
-                    n=1, p=vis_prb, size=vis_prb.shape, dtype=theano.config.floatX)
+                    n=1, p=vis_prb, size=vis_prb.shape,
+                    dtype=theano.config.floatX)
 
                 #   calculate hidden layer probabilities and activations
                 hid_prb = T.nnet.sigmoid(T.dot(vis_act, self.W) + self.b_hid)
                 hid_act = self.theano_rng.binomial(
-                    n=1, p=hid_prb, size=hid_prb.shape, dtype=theano.config.floatX)
+                    n=1, p=hid_prb, size=hid_prb.shape,
+                    dtype=theano.config.floatX)
 
                 return (vis_prb, vis_act, hid_prb, hid_act)
 
@@ -157,6 +160,53 @@ class RBM():
                 updates=updates)
 
         return self.steps_given_hid_f(hid, steps)
+
+    def pseudo_likelihood_cost(self, vis):
+        """
+        Stochastic approximation to the pseudo-likelihood.
+        Used as an error rate that is reported when using
+        persistent contrastive divergence.
+
+        :param vis: State of the visible layer,
+            a numpy array of dimensions [N, n_vis]
+        """
+
+        if getattr(self, 'pseudo_likelihood_cost_f', None) is None:
+
+            def free_energy(vis_act):
+
+                wx_b = T.dot(vis_act, self.W) + self.b_hid
+                vbias_term = T.dot(vis_act, self.b_vis)
+                hidden_term = T.sum(T.log(1 + T.exp(wx_b)), axis=1)
+                return -hidden_term - vbias_term
+
+            # index of bit i in expression p(x_i | x_{\i})
+            bit_i_idx = theano.shared(value=0, name='bit_i_idx')
+
+            # calculate free energy for the given bit configuration
+            vis_act = T.matrix('vis_act', dtype=theano.config.floatX)
+            fe = free_energy(vis_act)
+
+            # flip bit x_i of matrix vis_act, assign
+            # to vis_act_flip, instead of working in place on vis_act
+            vis_act_flip = T.set_subtensor(vis_act[:, bit_i_idx],
+                                           1 - vis_act[:, bit_i_idx])
+
+            # calculate free energy with bit flipped
+            fe_flip = free_energy(vis_act_flip)
+
+            # equivalent to e^(-FE(x_i)) / (e^(-FE(x_i)) + e^(-FE(x_{\i})))
+            cost = T.mean(self.n_vis * T.log(T.nnet.sigmoid(fe_flip - fe)))
+
+            # increment bit_i_idx % number as part of updates
+            updates = {bit_i_idx: (bit_i_idx + 1) % self.n_vis}
+
+            self.pseudo_likelihood_cost_f = theano.function(
+                [vis_act],
+                cost,
+                updates=updates)
+
+        return self.pseudo_likelihood_cost_f(vis)
 
     def train(self, X_mnb, epochs, eps,
               pcd=False, steps=1, spars=None, spars_cost=None,
@@ -197,14 +247,6 @@ class RBM():
         """
 
         log.info('Training RBM, epochs: %d, spars:%r', epochs, spars)
-
-        #   compile the cost function for PCD, if we use it
-        if pcd:
-            cost, updates = self.get_pseudo_likelihood_cost(self.input)
-            pl_cost_f = theano.function(
-                [self.input],
-                cost,
-                updates=updates)
 
         #   initialize the vis biases according to the data
         b_vis_init = sum(
@@ -287,7 +329,7 @@ class RBM():
 
                 #   calc cost to be reported
                 if pcd:
-                    batch_costs.append(pl_cost_f(batch))
+                    batch_costs.append(self.pseudo_likelihood_cost(batch))
                 else:
                     batch_costs.append(((neg_vis_prb - batch) ** 2).mean())
 
@@ -312,40 +354,6 @@ class RBM():
                  (epoch_times[-1] - epoch_times[0]) / 60.0)
 
         return epoch_costs, epoch_times, epoch_hid_prbs
-
-    def free_energy(self, vis_act):
-
-        wx_b = T.dot(vis_act, self.W) + self.b_hid
-        vbias_term = T.dot(vis_act, self.b_vis)
-        hidden_term = T.sum(T.log(1 + T.exp(wx_b)), axis=1)
-        return -hidden_term - vbias_term
-
-    def get_pseudo_likelihood_cost(self, vis_act):
-        """Stochastic approximation to the pseudo-likelihood"""
-
-        # index of bit i in expression p(x_i | x_{\i})
-        bit_i_idx = theano.shared(value=0, name='bit_i_idx')
-
-        # calculate free energy for the given bit configuration
-        free_energy = self.free_energy(vis_act)
-
-        # flip bit x_i of matrix vis_act and preserve all other bits x_{\i}
-        # equal to vis_act[:,bit_i_idx] = 1-vis_act[:, bit_i_idx], but assigns
-        # the result to vis_act_flip, instead of working in place on vis_act.
-        vis_act_flip = T.set_subtensor(vis_act[:, bit_i_idx],
-                                       1 - vis_act[:, bit_i_idx])
-
-        # calculate free energy with bit flipped
-        free_energy_flip = self.free_energy(vis_act_flip)
-
-        # equivalent to e^(-FE(x_i)) / (e^(-FE(x_i)) + e^(-FE(x_{\i})))
-        cost = T.mean(self.n_vis * T.log(T.nnet.sigmoid(free_energy_flip -
-                                                        free_energy)))
-
-        # increment bit_i_idx % number as part of updates
-        updates = {bit_i_idx: (bit_i_idx + 1) % self.n_vis}
-
-        return cost, updates
 
     def __getstate__(self):
         """

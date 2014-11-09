@@ -305,6 +305,159 @@ def shuffle_arrays(a1, a2):
         a2[old_index], a2[new_index] = a2[new_index], a2[old_index]
 
 
+def labels_to_indices(labels):
+    """
+    Converts an iterable of labels into
+    a numpy vector of label indices (zero-based).
+
+    Returns a tuple (indices, vocabulary) so that
+    vocabulary[index]=label
+    """
+    vocab = sorted(set(labels))
+    indices = np.array([vocab.index(lab) for lab in labels], dtype=np.int)
+
+    return indices, vocab
+
+
+def one_hot(indices, count=None):
+    """
+    Takes a vector of 0 based indices (numpy array) and
+    converts it into a matrix of one-hot-encoded
+    indices (each index becomes one row).
+
+    For example, if 'indices' is [2, 3], the
+    results is:
+    [
+      [0, 0, 1, 0],
+      [0, 0, 0, 1]
+    ]
+
+    :param indices: The indices to convert.
+
+    :param count: The number elements each one-hot-encoded
+        vector should have. If 'None', it is assumed to be
+        (indices.max() + 1)
+    """
+
+    #   ensure indices is a vector
+    indices = indices.reshape(indices.size)
+
+    #   get the max size
+    if count is None:
+        count = indices.max() + 1
+    else:
+        assert indices.max() < count
+
+    encoded = np.zeros((indices.size, count), dtype=np.uint8)
+    encoded[range(indices.size), indices] = 1
+
+    return encoded
+
+
+class __lin_reducer(object):
+
+    """
+    Class used by the 'lin_reducer' function.
+    """
+
+    def __init__(self, start, step):
+        self.start = start
+        self.step = step
+
+    def __call__(self, epoch_ind, epoch_errors):
+        return self.start - self.step * epoch_ind
+
+    def __str__(self):
+        return self.__repr__()
+
+    def __repr__(self):
+        return "({:.3f} - {:.5f} * epoch)".format(
+            self.start, self.step)
+
+
+def lin_reducer(start, end, epochs=100):
+    """
+    Creates and returns a callable that is used
+    for calculating epsilon (learning rate) in the RBM
+    depending on the epoch and/or previous epoch costs.
+    Epsilon is calculated to liearly reduce from
+    'start' to 'end' in 'epoch' number of epochs.
+
+    :param start: The desired initial learning rate.
+
+    :param end: The desired learning rate at point
+        indicated by 'epochs' param.
+
+    :param epochs: See 'end'.
+    """
+    return __lin_reducer(start, (start - end) / float(epochs))
+
+
+def f_macro(truth, prediction, beta=1.0):
+    """
+    Calculates the F-macro measure (averaged over classes)
+    for a given set of truth / prediction class label indices.
+
+    :param truth: An iterable of integers indicating
+        true classes.
+    :param prediction: An iterable of integers indicating
+        predicted classes.
+    :param beta: Beta parameter of the f-measure.
+    """
+
+    assert(len(truth) == len(prediction))
+
+    #   get the number of classes
+    cls_count = max(max(truth), max(prediction)) + 1
+
+    #   for each class calculate everything
+    scores = np.zeros(cls_count)
+    for cls in range(cls_count):
+
+        TP, FP, TN, FN = 0, 0, 0, 0
+        for t, p in zip(truth, prediction):
+            if t == cls:
+                if p == cls:
+                    TP += 1
+                else:
+                    FN += 1
+            else:
+                if p == cls:
+                    FP += 1
+                else:
+                    TN += 1
+
+        precision = TP / float(TP + FP)
+        recall = TP / float(TP + FN)
+        f_score = (1.0 + beta ** 2) * precision * recall \
+            / (beta ** 2 * precision + recall)
+        scores[cls] = f_score
+
+    return scores.mean()
+
+
+def confusion_matrix(truth, prediction):
+    """
+    Calculates and returns the confusion matrix given
+    the truth and prediction vectors.
+
+    :param truth: An iterable of integers indicating
+        true classes.
+    :param prediction: An iterable of integers indicating
+        predicted classes.
+    """
+    assert(len(truth) == len(prediction))
+
+    #   get the number of classes
+    cls_count = max(max(truth), max(prediction)) + 1
+
+    matrix = np.zeros((cls_count, cls_count))
+    for t, p in zip(truth, prediction):
+        matrix[t, p] += 1
+
+    return matrix
+
+
 def histogram(unit_prb, buckets=50):
     """
     Histograms unit (neuron) activations.

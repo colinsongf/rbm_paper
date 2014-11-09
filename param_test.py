@@ -21,11 +21,12 @@ class SomeClass(object):
         return self.some_function_compiled(input)
 
 
-def f_kwargs(**kwargs):
+def f_kwargs(arg0, **kwargs):
 
     args = {'arg1': 100, 'arg2': 200, 'arg3': 300}
     args.update(kwargs)
 
+    log.info('arg0: %r', arg0)
     for k in args.keys():
         log.info('Kwarg[%s] = %s', k, args[k])
 

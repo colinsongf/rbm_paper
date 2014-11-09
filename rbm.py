@@ -112,6 +112,31 @@ class RBM():
 
         return self.hid_given_vis_f(vis)
 
+    def vis_given_hid(self, hid):
+        """
+        Calculates the visible layer probabilities and
+        activations given the hidden layer activations.
+
+        Returns a tuple of form (vis_prb, vis_act).
+        Both are numpy arrays of shape (N, n_vis).
+
+        :param hid: State of the visible layer, a numpy
+            array of shape (N, n_vis)
+        """
+
+        if getattr(self, 'vis_given_hid_f', None) is None:
+
+            hid_input = T.matrix('hid_input')
+            vis_prb = T.nnet.sigmoid(T.dot(hid_input, self.W.T) + self.b_vis)
+            vis_act = self.theano_rng.binomial(
+                n=1, p=vis_prb, size=vis_prb.shape,
+                dtype=theano.config.floatX)
+
+            self.vis_given_hid_f = theano.function(
+                [hid_input], [vis_prb, vis_act])
+
+        return self.vis_given_hid_f(hid)
+
     def steps_given_hid(self, hid, steps):
         """
         Calculates
@@ -208,8 +233,22 @@ class RBM():
 
         return self.pseudo_likelihood_cost_f(vis)
 
+    def train_kw(self, X_mnb, **kw_arg):
+        """
+        A proxy to the "train" function that takes
+        keyword arguments.
+        """
+
+        self.train(X_mnb, epochs=kw_arg['epochs'],
+                   eps=kw_arg['eps'],
+                   pcd=kw_arg.get('pcd', True),
+                   steps=kw_arg.get('steps', 1),
+                   spars=kw_arg.get('spars', None),
+                   spars_cost=kw_arg.get('spars_cost', None),
+                   weight_cost=kw_arg.get('weight_cost', 1e-4))
+
     def train(self, X_mnb, epochs, eps,
-              pcd=False, steps=1, spars=None, spars_cost=None,
+              pcd=True, steps=1, spars=None, spars_cost=None,
               weight_cost=1e-4):
         """
         Trains the RBM with the given data. Returns a tuple containing
@@ -246,7 +285,9 @@ class RBM():
 
         """
 
-        log.info('Training RBM, epochs: %d, spars:%r', epochs, spars)
+        log.info('Training RBM, epochs: %d, eps: %r, pcd:%d, steps:%d, '
+                 'spars:%r, spars_cost:%r',
+                 epochs, eps, pcd, steps, spars, spars_cost)
 
         #   initialize the vis biases according to the data
         b_vis_init = sum(
@@ -270,6 +311,12 @@ class RBM():
         #   iterate through the epochs
         for epoch_ind, epoch in enumerate(range(epochs)):
             log.info('Starting epoch %d', epoch)
+
+            #   calc epsilon for this epoch
+            if not isinstance(eps, float):
+                epoch_eps = eps(epoch_ind, epoch_costs)
+            else:
+                epoch_eps = eps
 
             #   iterate through the minibatches
             batch_costs = []
@@ -322,7 +369,7 @@ class RBM():
 
                 #   sparsity gradient
                 if((spars is not None) & (spars_cost is not None)):
-                    spars_grad = (pos_hid - spars) * spars_cost * eps
+                    spars_grad = (pos_hid - spars) * spars_cost
                     grad_W -= np.dot(pos_vis.reshape((self.n_vis, 1)),
                                      spars_grad.reshape((1, self.n_hid)))
                     grad_b_hid -= spars_grad
@@ -338,9 +385,11 @@ class RBM():
                 epoch_hid_prbs[epoch_ind, :] += pos_hid / batch.shape[0]
 
                 #   updating the params
-                self.W.set_value(self.W.get_value() + eps * grad_W)
-                self.b_vis.set_value(self.b_vis.get_value() + eps * grad_b_vis)
-                self.b_hid.set_value(self.b_hid.get_value() + eps * grad_b_hid)
+                self.W.set_value(self.W.get_value() + epoch_eps * grad_W)
+                self.b_vis.set_value(
+                    self.b_vis.get_value() + epoch_eps * grad_b_vis)
+                self.b_hid.set_value(
+                    self.b_hid.get_value() + epoch_eps * grad_b_hid)
 
             epoch_costs.append(np.array(batch_costs).mean())
             epoch_times.append(time())

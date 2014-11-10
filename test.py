@@ -29,7 +29,7 @@ def get_data(cls_count=None):
 def test_rbm():
 
     log.info('Testing RBM')
-    rbm = RBM(32 * 24, 300)
+    rbm = RBM(32 * 24, 588)
     # util.display_RBM(rbm, 32, 24)
 
     #   trainset loading
@@ -40,7 +40,7 @@ def test_rbm():
     X_mnb = util.create_minibatches(X, None, 20 * cls_count)
 
     cost, time, hid_act = rbm.train(
-        X_mnb, 50, eps=0.05, spars=0.05, spars_cost=0.1)
+        X_mnb, 10, eps=0.05, spars=0.05, spars_cost=6.0)
 
     util.display_RBM(rbm, 32, 24)
 
@@ -53,11 +53,11 @@ def test_dbn():
 
     X_mnb, y_mnb = util.create_minibatches(X, y, 20 * cls_count)
 
-    lin_eps = util.lin_reducer(0.05, 0.002, 20)
-    dbn = DBN([32 * 24, 50, 100], cls_count)
+    # lin_eps = util.lin_reducer(0.05, 0.002, 20)
+    dbn = DBN([32 * 24, 588, 588], cls_count)
     dbn.train(X_mnb, y_mnb, [
-        {'epochs': 20, 'eps': lin_eps, 'spars': 0.125, 'spars_cost': 2.0},
-        {'epochs': 20, 'eps': lin_eps}
+        {'epochs': 50, 'eps': 0.05, 'spars': 0.05, 'spars_cost': 0.3},
+        {'epochs': 100, 'eps': 0.05}
     ])
 
 

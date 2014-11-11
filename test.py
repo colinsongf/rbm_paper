@@ -29,23 +29,25 @@ def get_data(cls_count=None):
 def test_rbm():
 
     log.info('Testing RBM')
-    rbm = RBM(32 * 24, 588)
+    rbm = RBM(32 * 24, 100)
     # util.display_RBM(rbm, 32, 24)
 
     #   trainset loading
     cls_count = 9
-    X, y, classes = get_data(cls_count=None)
+    X, y, classes = get_data(cls_count=cls_count)
 
     #   train the RBM for a while!
     X_mnb = util.create_minibatches(X, None, 20 * cls_count)
 
     cost, time, hid_act = rbm.train(
-        X_mnb, 10, eps=0.05, spars=0.05, spars_cost=6.0)
+        X_mnb, **{'epochs': 5, 'eps': 0.05, 'spars': 0.05, 'spars_cost': 6.0})
 
     util.display_RBM(rbm, 32, 24)
 
 
 def test_dbn():
+
+    log.info('Testing DBN')
 
     #   trainset loading
     cls_count = 9
@@ -57,14 +59,12 @@ def test_dbn():
     dbn = DBN([32 * 24, 588, 588], cls_count)
     dbn.train(X_mnb, y_mnb, [
         {'epochs': 50, 'eps': 0.05, 'spars': 0.05, 'spars_cost': 0.3},
-        {'epochs': 100, 'eps': 0.05}
+        {'epochs': 1, 'eps': 0.05}
     ])
 
 
 def main():
     logging.basicConfig(level=logging.INFO)
-    log.info('Test cod for Theano DBN')
-
     test_rbm()
 
 

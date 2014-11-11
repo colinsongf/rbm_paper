@@ -78,6 +78,8 @@ class DBN(object):
                 #   the last rbm needs labels appended
                 if rbm is self.rbms[-1]:
 
+                    log.info('Appending one-hot labes to data')
+
                     #   iterate through the minibatches
                     for i in range(len(X_mnb)):
 
@@ -88,7 +90,10 @@ class DBN(object):
                         rbm_X[i] = np.append(y_one_hot, rbm_X[i], axis=1)
 
                 #   train rbm
-                rbm.train_kw(rbm_X, **params[rbm_ind])
+                if isinstance(params[rbm_ind], dict):
+                    rbm.train(rbm_X, **params[rbm_ind])
+                else:
+                    rbm.train(rbm_X, *params[rbm_ind])
 
             #   convert X to input for the next rbm
             rbm_X = [rbm.hid_given_vis(r)[1] for r in rbm_X]

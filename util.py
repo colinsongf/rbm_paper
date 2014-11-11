@@ -58,7 +58,10 @@ def create_minibatches(X, y, size, shuffle=True):
     #   shuffle trainset
     if shuffle:
         if y is not None:
-            shuffle_arrays(X, y)
+            assert len(X) == len(y)
+            p = np.random.permutation(len(X))
+            X = X[p]
+            y = y[p]
         else:
             np.random.shuffle(X)
 
@@ -286,23 +289,6 @@ def load_trainset_zip(file_name):
         y[img_ind] = classes.index(image[:image.index(os.sep)])
 
     return X, y, classes
-
-
-def shuffle_arrays(a1, a2):
-    """
-    Shuffles two arrays so that their originally
-    corresponding elements also correspond in the shuffles.
-    Implements shuffling using the Knuth-Fisher-Yates
-    algorithm.
-
-    :param a1:
-    """
-    assert(len(a1) == len(a2))
-
-    for old_index in reversed(range(1, len(a1))):
-        new_index = np.random.randint(old_index + 1)
-        a1[old_index], a1[new_index] = a1[new_index], a1[old_index]
-        a2[old_index], a2[new_index] = a2[new_index], a2[old_index]
 
 
 def labels_to_indices(labels):

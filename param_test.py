@@ -21,6 +21,14 @@ class SomeClass(object):
         return self.some_function_compiled(input)
 
 
+def f_normal(arg1, arg2=None, arg3=43000):
+
+    log.info('f_normal')
+    log.info('arg1: %r', arg1)
+    log.info('arg2: %r', arg2)
+    log.info('arg3: %r', arg3)
+
+
 def f_kwargs(arg0, **kwargs):
 
     args = {'arg1': 100, 'arg2': 200, 'arg3': 300}
@@ -35,8 +43,10 @@ def main():
     logging.basicConfig(level=logging.DEBUG)
     log.info('Woohoo')
 
-    f_kwargs(arg1=10, arg2='asd')
-    f_kwargs(**{'arg1': 10, 'arg2': 3.5})
+    f_kwargs(100, arg1=10, arg2='asd')
+    f_kwargs(100, **{'arg1': 10, 'arg2': 3.5})
+
+    f_normal(**{'arg1': 10, 'arg3': 3.5})
 
     obj = SomeClass()
     log.info(obj.some_function(2))

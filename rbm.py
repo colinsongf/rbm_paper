@@ -233,20 +233,6 @@ class RBM():
 
         return self.pseudo_likelihood_cost_f(vis)
 
-    def train_kw(self, X_mnb, **kw_arg):
-        """
-        A proxy to the "train" function that takes
-        keyword arguments.
-        """
-
-        self.train(X_mnb, epochs=kw_arg['epochs'],
-                   eps=kw_arg['eps'],
-                   pcd=kw_arg.get('pcd', True),
-                   steps=kw_arg.get('steps', 1),
-                   spars=kw_arg.get('spars', None),
-                   spars_cost=kw_arg.get('spars_cost', None),
-                   weight_cost=kw_arg.get('weight_cost', 1e-4))
-
     def train(self, X_mnb, epochs, eps,
               pcd=True, steps=1, spars=None, spars_cost=None,
               weight_cost=1e-4):
@@ -369,7 +355,7 @@ class RBM():
 
                 #   sparsity gradient
                 if((spars is not None) & (spars_cost is not None)):
-                    spars_grad = (pos_hid - spars) * spars_cost
+                    spars_grad = (pos_hid - spars) * spars_cost * eps
                     grad_W -= np.dot(pos_vis.reshape((self.n_vis, 1)),
                                      spars_grad.reshape((1, self.n_hid)))
                     grad_b_hid -= spars_grad

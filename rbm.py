@@ -354,8 +354,9 @@ class RBM():
                 grad_W += weight_cost * self.W.get_value()
 
                 #   sparsity gradient
-                if((spars is not None) & (spars_cost is not None)):
-                    spars_grad = (pos_hid - spars) * spars_cost * eps
+                if((spars is not None) & (spars_cost is not None)
+                        & (spars_cost != 0.0)):
+                    spars_grad = (pos_hid - spars) * spars_cost
                     grad_W -= np.dot(pos_vis.reshape((self.n_vis, 1)),
                                      spars_grad.reshape((1, self.n_hid)))
                     grad_b_hid -= spars_grad

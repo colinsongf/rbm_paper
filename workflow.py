@@ -218,7 +218,7 @@ def get_data():
         #   minibatches, but for 'test' they are not
         data_train = {}
         data_test = {}
-        for cls_cnt in [1, 3, 9]:
+        for cls_cnt in [1, 3, 7, 9]:
 
             #   get data subset
             X_subs, y_subs = data_subset(cls_cnt)
@@ -300,35 +300,85 @@ def job_queue():
 
         #   some DBN training!
         D((
-            3, [n_vis, 10, 10],
-            [
-                [5, 0.05, True, 1, 0.2, 0.2],
-                [5, 0.05, True, 1, 0.0, 0.0]
-            ]
-        ), *d_train[3]),
-
-        D((
-            3, [n_vis, 276, 200],
-            [
-                [20, 0.05, True, 1, 0.2, 0.2],
-                [20, 0.05, True, 1, 0.0, 0.0]
-            ]
-        ), *d_train[3]),
-
-        D((
             9, [n_vis, 588, 500],
             [
                 [100, 0.05, True, 1, 0.05, 0.3],
                 [50, 0.05, True, 1, 0.0, 0.0]
             ]
-        ), *d_train[9])
+        ), *d_train[9]),
+
+        D((
+            9, [n_vis, 588, 500],
+            [
+                [100, 0.05, True, 1, 0.1, 0.3],
+                [50, 0.05, True, 1, 0.0, 0.0]
+            ]
+        ), *d_train[9]),
+
+        D((
+            9, [n_vis, 588, 500],
+            [
+                [100, 0.05, True, 1, 0.05, 0.05],
+                [50, 0.05, True, 1, 0.0, 0.0]
+            ]
+        ), *d_train[9]),
+
+        D((
+            7, [n_vis, 588, 500],
+            [
+                [100, 0.05, True, 1, 0.05, 0.3],
+                [50, 0.05, True, 1, 0.0, 0.0]
+            ]
+        ), *d_train[7]),
+
+        D((
+            7, [n_vis, 588, 500],
+            [
+                [100, 0.05, True, 1, 0.05, 0.3],
+                [100, 0.03, True, 1, 0.0, 0.0]
+            ]
+        ), *d_train[7]),
+
+        D((
+            7, [n_vis, 588, 1000],
+            [
+                [100, 0.05, True, 1, 0.05, 0.3],
+                [50, 0.05, True, 1, 0.0, 0.0]
+            ]
+        ), *d_train[7])
 
     )
 
     return job_queue
 
 
+def eval_dbns():
+
+    log.info('Will evaluate DBN classification performance')
+    _, d_test = get_data()
+
+    for job in job_queue():
+
+        if ((not isinstance(job, DbnJob))
+                | (not job.is_done())):
+            continue
+
+        job_dbn = job.results[0]
+        job_cls_cnt = job_dbn.class_count
+        X_test, y_test = d_test[job_cls_cnt]
+        y_test_pred = job_dbn.classify(X_test)
+
+        acc = sum(y_test == y_test_pred) / float(len(y_test))
+        f1_macro = util.f_macro(y_test, y_test_pred)
+        log.info('\nDBN: %r', job)
+        log.info('\tacc: %.2f, f1_macro: %.2f', acc, f1_macro)
+        log.info('\tConfusion matrix:\n%r',
+                 util.confusion_matrix(y_test, y_test_pred))
+
+
 def main():
+
+    # eval_dbns()
 
     for job in job_queue():
         log.info('Evaluating job: %s', job)

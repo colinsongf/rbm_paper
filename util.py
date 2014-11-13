@@ -86,6 +86,31 @@ def create_minibatches(X, y, size, shuffle=True):
         return batches_X
 
 
+def display_array(a, dim_y, dim_x, scale=False):
+    """
+    Displays an array.
+
+    :param a: The array to display.
+    :param dim_y: Height of the image (pixels).
+    :param dim_x: Width of the image (pixels).
+    :param scale: If array values should be scaled
+        to the [0, 1] interval, or displayed 'as is'
+    """
+
+    a = np.array(a, copy=True, dtype=np.float)
+
+    if scale:
+        a -= a.min()
+        a /= max(a.max(), 0.000001)
+        a *= 255
+        a = np.array(a, dtype=np.uint8)
+
+    a = a.reshape((dim_y, dim_x)) * 255
+
+    img = Image.fromarray(a)
+    img.show()
+
+
 def display_RBM(rbm, dim_y, dim_x, ratio=1.333,
                 onscreen=True, image_title='RBM',
                 image_file_name=None):

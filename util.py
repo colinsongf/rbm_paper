@@ -111,22 +111,28 @@ def display_array(a, dim_y, dim_x, scale=False):
     img.show()
 
 
-def display_RBM(rbm, dim_y, dim_x, ratio=1.333,
-                onscreen=True, image_title='RBM',
-                image_file_name=None):
+def display_weights(W, dim_y, dim_x, ratio=1.333,
+                    onscreen=True, image_title='weights',
+                    image_file_name=None):
     """
-    Displays the visualization of features of the given rbm on screen,
-    and optionally saves the image. A feature is a set of weights
-    from a single hidden unit to all the visible ones. features
-    are aranged into rows and columns.
+    Displays the visualization of neural net (RBM) weights,
+    and optionally saves the image. Weights are grouped per
+    hidden neuron, each hidden neuron then displayed as a rectangle
+    of dim_y height and dim_x width. Those rectangles are then
+    arranged into a grid. This representation is typically
+    useful for the first layer of weights in an RBM that works
+    with images.
 
-    Useful for RBMs that work with images.
+    :param W: The weight matrix to be displayed. Of dimensions
+        (n_vis, n_hid), where n_vis is the dimensionality of
+        the lower, visible layer that W connects, and is equal
+        to dim_y * dim_x.
 
-    :param rbm: The RBM for which features are to be visualized.
+    :param dim_y: Height of the image represented by the
+        visible layer.
 
-    :param dim_y: Height of the image (visible layer).
-
-    :param dim_x: Width of the image (visible layer).
+    :param dim_x: Width of the image represented by the
+        visible layer.
 
     :param ratio: The desired ratio of the resulting image.
         Note that it might be impossible to get exactly the desired
@@ -139,8 +145,9 @@ def display_RBM(rbm, dim_y, dim_x, ratio=1.333,
     :param image_file_name: Name of the file where the image should
         be stored. If None, the image is not stored.
     """
-    log.info('Displaying RBM')
-    W = rbm.W.get_value()
+    log.info('Displaying weights')
+
+    n_vis, n_hid = W.shape
 
     #   compose the hidden unit weights into a single image
     #   we use an array that will hold all the pixels of all hiddden / visible
@@ -148,12 +155,12 @@ def display_RBM(rbm, dim_y, dim_x, ratio=1.333,
 
     #   calculate the number of rows and and columns required to get
     #   the desired ratio in an image displaying all hidden units
-    rows = (dim_x * rbm.n_hid / (ratio * dim_y)) ** 0.5
+    rows = (dim_x * n_hid / (ratio * dim_y)) ** 0.5
     cols = int(math.ceil(ratio * dim_y * rows / dim_x))
     rows = int(math.ceil(rows))
-    if (rows - 1) * cols >= rbm.n_hid:
+    if (rows - 1) * cols >= n_hid:
         rows -= 1
-    if (cols - 1) * rows >= rbm.n_hid:
+    if (cols - 1) * rows >= n_hid:
         cols -= 1
 
     margin = 3
@@ -189,6 +196,39 @@ def display_RBM(rbm, dim_y, dim_x, ratio=1.333,
     #   if given the image file name, save it to disk
     if image_file_name is not None:
         image.save(image_file_name)
+
+
+def display_RBM(rbm, dim_y, dim_x, ratio=1.333,
+                onscreen=True, image_title='RBM',
+                image_file_name=None):
+    """
+    Displays the visualization of features of the given rbm on screen,
+    and optionally saves the image. A feature is a set of weights
+    from a single hidden unit to all the visible ones. features
+    are aranged into rows and columns.
+
+    Useful for RBMs that work with images.
+
+    :param rbm: The RBM for which features are to be visualized.
+
+    :param dim_y: Height of the image (visible layer).
+
+    :param dim_x: Width of the image (visible layer).
+
+    :param ratio: The desired ratio of the resulting image.
+        Note that it might be impossible to get exactly the desired
+        ratio, depending on dim_x, dim_y and the number of images.
+
+    :param onscreen: If the image should be displayed onscreen.
+
+    :param image_title: Name to be displayed with the displayed image.
+
+    :param image_file_name: Name of the file where the image should
+        be stored. If None, the image is not stored.
+    """
+    log.info('Displaying RBM')
+    display_weights(rbm.W.get_value(), dim_y, dim_x, ratio,
+                    onscreen, image_title, image_file_name)
 
     #   now handle visible biases
     bias_img_array = rbm.b_vis.get_value().copy().reshape((dim_y, dim_x))

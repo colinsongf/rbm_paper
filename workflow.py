@@ -1,9 +1,6 @@
 """
 A workflow for running RBM / DBN training
-in batches. Goes through a queue
-of jobs, performing them one by one,
-detecting if they are done, and storing
-the results.
+in batches.
 
 The idea is to make a queue of RBMs to train,
 and let it all run. Each queue job is stored
@@ -23,16 +20,23 @@ import abc
 
 log = logging.getLogger(__name__)
 
+#   the directory where workflow results are stored
+DIR = 'workflow_results' + os.sep
+DIR_IMG = DIR + 'img' + os.sep
+
+#   ensure that the directories for storing workflow results exist
+if not os.path.exists(DIR):
+    os.makedirs(DIR)
+
+if not os.path.exists(DIR_IMG):
+    os.makedirs(DIR_IMG)
+
 
 class Job(object):
-
     """
     A single job to perform. Abstract class for concrete
-    RBM and DBN jobs. Takes care of result storing.
+    RBM and DBN jobs. Defines interface and takes care of result storing.
     """
-
-    DIR = 'workflow_results' + os.sep
-    DIR_IMG = DIR + 'img' + os.sep
 
     def __init__(self, file_name_base):
         """
@@ -44,14 +48,8 @@ class Job(object):
         """
         self.file_name_base = file_name_base
 
-        if not os.path.exists(Job.DIR):
-            os.makedirs(Job.DIR)
-
-        if not os.path.exists(Job.DIR_IMG):
-            os.makedirs(Job.DIR_IMG)
-
         self.results = util.unpickle_unzip(
-            Job.DIR + self.file_name_base + '.zip')
+            DIR + self.file_name_base + '.zip')
 
     def is_done(self):
         return self.results is not None
@@ -60,7 +58,7 @@ class Job(object):
 
         self.results = self._perform()
         util.pickle_zip(self.results,
-                        Job.DIR + self.file_name_base + '.zip')
+                        DIR + self.file_name_base + '.zip')
 
     @abc.abstractmethod
     def _perform(self):
@@ -110,7 +108,7 @@ class RbmJob(Job):
 
         util.display_RBM(
             rbm, 32, 24, onscreen=False,
-            image_file_name=Job.DIR_IMG + self.file_name_base + '.png')
+            image_file_name=DIR_IMG + self.file_name_base + '.png')
 
         return (rbm, cost, time, hid_act)
 
@@ -180,16 +178,32 @@ class DbnJob(Job):
         return (dbn, train_res)
 
 
+#   Raw data from the trainset
+#   Cached here to avoid duplicate loading.
+raw_data = util.load_trainset()
+
+
+#   a gloabla variable that holds the data returned by
+#   the get_data() method. lazily initialized
 __data = None
 
 
 def get_data():
+    """
+    Returns the data for the workflow: a tuple of two
+    dicts (data_train, data_test). Each dictionary maps class
+    counts (integers indicating how many classes are used)
+    to a tuple of form (X, y) where X are data samples and
+    y are labels. Both are numpy arrays.
+
+    The data is lazily initialized into the global __data variable.
+    """
 
     global __data
 
     if __data is None:
 
-        X, y, classes = util.load_trainset()
+        X, y, classes = raw_data
         log.info('Read %d samples', len(y))
 
         def data_subset(cls_count):
@@ -239,7 +253,20 @@ def get_data():
     return __data
 
 
+#   a gloabal variable that holds the job_queue list
+#   returned by the job_queue() function
+__job_queue = None
+
+
 def job_queue():
+    """
+    Returns a list of jobs (some done, some possibly not).
+    """
+
+    #   lazy init of a global variable
+    global __job_queue
+    if __job_queue is not None:
+        return __job_queue
 
     d_train, d_test = get_data()
 
@@ -248,7 +275,7 @@ def job_queue():
     n_vis = 32 * 24
     # R = RbmJob
     D = DbnJob
-    job_queue = (
+    __job_queue = (
         # R((1, n_vis, 144, 50, 0.05, False, 1, 0.1, 0.5), d_train[1][0]),
         # R((1, n_vis, 144, 50, 0.05, False, 1, 0.1, 0.1), d_train[1][0]),
         # R((1, n_vis, 144, 50, 0.05, False, 1, 0.1, 0.005), d_train[1][0]),
@@ -299,10 +326,34 @@ def job_queue():
         # R((9, n_vis, 588, 50, 0.05, True, 2, 0.0, 0.0), d_train[9][0]),
 
         #   some DBN training!
+        # D((
+        #     9, [n_vis, 588, 500],
+        #     [
+        #         [100, 0.05, True, 1, 0.05, 0.05],
+        #         [50, 0.05, True, 1, 0.0, 0.0]
+        #     ]
+        # ), *d_train[9]),
+
+        # D((
+        #     9, [n_vis, 588, 500],
+        #     [
+        #         [100, 0.05, True, 1, 0.05, 0.3],
+        #         [50, 0.05, True, 1, 0.0, 0.0]
+        #     ]
+        # ), *d_train[9]),
+
+        # D((
+        #     9, [n_vis, 588, 500],
+        #     [
+        #         [100, 0.05, True, 1, 0.085, 0.3],
+        #         [50, 0.05, True, 1, 0.0, 0.0]
+        #     ]
+        # ), *d_train[9]),
+
         D((
             9, [n_vis, 588, 500],
             [
-                [100, 0.05, True, 1, 0.05, 0.3],
+                [100, 0.05, True, 1, 0.085, 0.15],
                 [50, 0.05, True, 1, 0.0, 0.0]
             ]
         ), *d_train[9]),
@@ -310,75 +361,92 @@ def job_queue():
         D((
             9, [n_vis, 588, 500],
             [
-                [100, 0.05, True, 1, 0.1, 0.3],
+                [30, 0.05, True, 1, 0.085, 0.15],
                 [50, 0.05, True, 1, 0.0, 0.0]
             ]
         ), *d_train[9]),
 
-        D((
-            9, [n_vis, 588, 500],
-            [
-                [100, 0.05, True, 1, 0.05, 0.05],
-                [50, 0.05, True, 1, 0.0, 0.0]
-            ]
-        ), *d_train[9]),
+        # D((
+        #     9, [n_vis, 588, 500],
+        #     [
+        #         [100, 0.05, True, 1, 0.085, 0.05],
+        #         [50, 0.05, True, 1, 0.0, 0.0]
+        #     ]
+        # ), *d_train[9]),
 
-        D((
-            7, [n_vis, 588, 500],
-            [
-                [100, 0.05, True, 1, 0.05, 0.3],
-                [50, 0.05, True, 1, 0.0, 0.0]
-            ]
-        ), *d_train[7]),
+        # D((
+        #     9, [n_vis, 588, 500],
+        #     [
+        #         [100, 0.05, True, 1, 0.1, 0.05],
+        #         [50, 0.05, True, 1, 0.0, 0.0]
+        #     ]
+        # ), *d_train[9]),
 
-        D((
-            7, [n_vis, 588, 500],
-            [
-                [100, 0.05, True, 1, 0.05, 0.3],
-                [100, 0.03, True, 1, 0.0, 0.0]
-            ]
-        ), *d_train[7]),
+        # D((
+        #     9, [n_vis, 588, 500],
+        #     [
+        #         [100, 0.05, True, 1, 0.1, 0.3],
+        #         [50, 0.05, True, 1, 0.0, 0.0]
+        #     ]
+        # ), *d_train[9]),
 
-        D((
-            7, [n_vis, 588, 1000],
-            [
-                [100, 0.05, True, 1, 0.05, 0.3],
-                [50, 0.05, True, 1, 0.0, 0.0]
-            ]
-        ), *d_train[7])
+        # D((
+        #     9, [n_vis, 588, 500],
+        #     [
+        #         [100, 0.05, True, 1, 0.15, 0.05],
+        #         [50, 0.05, True, 1, 0.0, 0.0]
+        #     ]
+        # ), *d_train[9]),
+
+        # D((
+        #     9, [n_vis, 588, 500],
+        #     [
+        #         [100, 0.05, True, 1, 0.15, 0.3],
+        #         [50, 0.05, True, 1, 0.0, 0.0]
+        #     ]
+        # ), *d_train[9]),
+
+        # D((
+        #     9, [n_vis, 588, 500],
+        #     [
+        #         [100, 0.05, True, 1, 0.0, 0.0],
+        #         [50, 0.05, True, 1, 0.0, 0.0]
+        #     ]
+        # ), *d_train[9]),
+
+        # D((
+        #     7, [n_vis, 588, 500],
+        #     [
+        #         [100, 0.05, True, 1, 0.05, 0.3],
+        #         [50, 0.05, True, 1, 0.0, 0.0]
+        #     ]
+        # ), *d_train[7]),
+
+        # D((
+        #     7, [n_vis, 588, 500],
+        #     [
+        #         [100, 0.05, True, 1, 0.05, 0.3],
+        #         [100, 0.03, True, 1, 0.0, 0.0]
+        #     ]
+        # ), *d_train[7]),
+
+        # D((
+        #     7, [n_vis, 588, 1000],
+        #     [
+        #         [100, 0.05, True, 1, 0.05, 0.3],
+        #         [50, 0.05, True, 1, 0.0, 0.0]
+        #     ]
+        # ), *d_train[7])
 
     )
 
-    return job_queue
-
-
-def eval_dbns():
-
-    log.info('Will evaluate DBN classification performance')
-    _, d_test = get_data()
-
-    for job in job_queue():
-
-        if ((not isinstance(job, DbnJob))
-                | (not job.is_done())):
-            continue
-
-        job_dbn = job.results[0]
-        job_cls_cnt = job_dbn.class_count
-        X_test, y_test = d_test[job_cls_cnt]
-        y_test_pred = job_dbn.classify(X_test)
-
-        acc = sum(y_test == y_test_pred) / float(len(y_test))
-        f1_macro = util.f_macro(y_test, y_test_pred)
-        log.info('\nDBN: %r', job)
-        log.info('\tacc: %.2f, f1_macro: %.2f', acc, f1_macro)
-        log.info('\tConfusion matrix:\n%r',
-                 util.confusion_matrix(y_test, y_test_pred))
+    return __job_queue
 
 
 def main():
 
-    # eval_dbns()
+    logging.basicConfig(level=logging.DEBUG)
+    log.info('Workflow main()')
 
     for job in job_queue():
         log.info('Evaluating job: %s', job)
@@ -387,5 +455,4 @@ def main():
 
 
 if __name__ == '__main__':
-    logging.basicConfig(level=logging.DEBUG)
     main()

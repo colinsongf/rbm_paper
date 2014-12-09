@@ -3,6 +3,8 @@ from dbn import DBN
 import util
 import logging
 import numpy as np
+import workflow as wf
+import analysis
 
 
 log = logging.getLogger(__name__)
@@ -63,9 +65,37 @@ def test_dbn():
     ])
 
 
+def test_dbn_mlp():
+
+    log.info('Testing DBN mlp training')
+
+    d_train, d_test = wf.get_data()
+    job = wf.DbnPretrainJob((
+        9, [32 * 24, 588, 500],
+        [
+            [100, 0.05, True, 1, 0.085, 0.15],
+            [50, 0.05, True, 1, 0.0, 0.0]
+        ]
+    ), *d_train[9])
+
+    assert job.is_done()
+
+    dbn = job.results[0]
+
+    log.info("Fine tuning")
+    mlp = dbn.to_mlp()
+    log.info('Will test estimator performance before fine tuning')
+    analysis.eval_estimator(mlp, 9, 'DBN before fine tuning')
+    X_mnb, y_mnb = d_train[9]
+    mlp.train(X_mnb, y_mnb, 1, 0.1)
+
+    log.info('Will test estimator performance before after tuning')
+    analysis.eval_estimator(mlp, 9, 'DBN as MLP, after fine tuning')
+
+
 def main():
     logging.basicConfig(level=logging.INFO)
-    test_rbm()
+    test_dbn_mlp()
 
 
 if __name__ == '__main__':

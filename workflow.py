@@ -1,12 +1,8 @@
 """
-A workflow for running RBM / DBN training
-in batches.
-
-The idea is to make a queue of RBMs to train,
-and let it all run. Each queue job is stored
-when done, so when the queue is interrupted
-training progress is lost only for the current
-job.
+Provides infrastructure for defining
+job batches, where each "job" is the
+traning of a an RBM, a DBN, MLP or whatever.
+Also provides data handling.
 """
 
 import logging
@@ -35,7 +31,8 @@ if not os.path.exists(DIR_IMG):
 class Job(object):
     """
     A single job to perform. Abstract class for concrete
-    RBM and DBN jobs. Defines interface and takes care of result storing.
+    RBM, DBN, whatever jobs. Defines interface and takes
+    care of storing results to the hard drive (zipped pickle).
     """
 
     def __init__(self, file_name_base):
@@ -75,7 +72,6 @@ class Job(object):
 
 
 class RbmJob(Job):
-
     """
     A Job for traning a single RBM.
     """
@@ -113,10 +109,9 @@ class RbmJob(Job):
         return (rbm, cost, time, hid_act)
 
 
-class DbnJob(Job):
-
+class DbnPretrainJob(Job):
     """
-    A Job for traning a single DBN.
+    A Job for pretraning a single DBN as a stack of RBMs.
     """
 
     @classmethod
@@ -144,9 +139,9 @@ class DbnJob(Job):
         self.y_train = y_train
 
         #   job results are stored in the file, attempt to load it
-        file_name_base = DbnJob.params_to_string(params)
+        file_name_base = DbnPretrainJob.params_to_string(params)
 
-        super(DbnJob, self).__init__(file_name_base)
+        super(DbnPretrainJob, self).__init__(file_name_base)
 
     def _perform(self):
 
@@ -177,7 +172,6 @@ class DbnJob(Job):
 
         return (dbn, train_res)
 
-
 #   Raw data from the trainset
 #   Cached here to avoid duplicate loading.
 raw_data = util.load_trainset()
@@ -193,8 +187,8 @@ def get_data():
     Returns the data for the workflow: a tuple of two
     dicts (data_train, data_test). Each dictionary maps class
     counts (integers indicating how many classes are used)
-    to a tuple of form (X, y) where X are data samples and
-    y are labels. Both are numpy arrays.
+    to a tuple of form (X_mnb, y_mnb) where X_mnb are data samples
+    split into minibatches and y are corresponding labels.
 
     The data is lazily initialized into the global __data variable.
     """
@@ -251,208 +245,3 @@ def get_data():
         __data = (data_train, data_test)
 
     return __data
-
-
-#   a gloabal variable that holds the job_queue list
-#   returned by the job_queue() function
-__job_queue = None
-
-
-def job_queue():
-    """
-    Returns a list of jobs (some done, some possibly not).
-    """
-
-    #   lazy init of a global variable
-    global __job_queue
-    if __job_queue is not None:
-        return __job_queue
-
-    d_train, d_test = get_data()
-
-    #   jobs, params for RBM training are:
-    #   (classes, n_vis, n_hid, epochs, epsilon, pcd, steps, spars, spars_cost)
-    n_vis = 32 * 24
-    # R = RbmJob
-    D = DbnJob
-    __job_queue = (
-        # R((1, n_vis, 144, 50, 0.05, False, 1, 0.1, 0.5), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, False, 1, 0.1, 0.1), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, False, 1, 0.1, 0.005), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, False, 1, 0.2, 0.5), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, False, 1, 0.2, 0.1), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, False, 1, 0.2, 0.005), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, True, 2, 0.2, 0.5), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, True, 2, 0.2, 0.1), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, True, 2, 0.2, 0.005), d_train[1][0]),
-
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.05, 0.25), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.05, 0.075), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.05, 0.025), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.1, 0.25), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.1, 0.1), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.1, 0.025), d_train[3][0]),
-
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.075, 0.25), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.075, 0.075), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.125, 0.25), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.125, 0.075), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, True, 2, 0.125, 0.25), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, True, 2, 0.125, 0.075), d_train[3][0]),
-
-        # R((9, n_vis, 432, 50, 0.05, False, 1, 0.10, 0.15), d_train[9][0]),
-        # R((9, n_vis, 432, 50, 0.05, False, 1, 0.10, 0.3), d_train[9][0]),
-        # R((9, n_vis, 432, 50, 0.05, False, 1, 0.075, 0.15), d_train[9][0]),
-        # R((9, n_vis, 432, 50, 0.05, False, 1, 0.075, 0.3), d_train[9][0]),
-        # R((9, n_vis, 432, 50, 0.05, False, 1, 0.05, 0.15), d_train[9][0]),
-        # R((9, n_vis, 432, 50, 0.05, False, 1, 0.05, 0.3), d_train[9][0]),
-
-        # R((9, n_vis, 588, 50, 0.05, False, 1, 0.10, 0.15), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, False, 1, 0.10, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, False, 2, 0.10, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, False, 1, 0.075, 0.15), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, False, 1, 0.075, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, False, 1, 0.05, 0.15), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, False, 1, 0.05, 0.3), d_train[9][0]),
-
-        # R((9, n_vis, 588, 50, 0.05, True, 2, 0.10, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 2, 0.075, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 1, 0.05, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 2, 0.05, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 4, 0.05, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 15, 0.05, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 2, 0.035, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 2, 0.065, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 2, 0.0, 0.0), d_train[9][0]),
-
-        #   some DBN training!
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.05, 0.05],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.05, 0.3],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.085, 0.3],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        D((
-            9, [n_vis, 588, 500],
-            [
-                [100, 0.05, True, 1, 0.085, 0.15],
-                [50, 0.05, True, 1, 0.0, 0.0]
-            ]
-        ), *d_train[9]),
-
-        D((
-            9, [n_vis, 588, 500],
-            [
-                [30, 0.05, True, 1, 0.085, 0.15],
-                [50, 0.05, True, 1, 0.0, 0.0]
-            ]
-        ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.085, 0.05],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.1, 0.05],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.1, 0.3],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.15, 0.05],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.15, 0.3],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.0, 0.0],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     7, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.05, 0.3],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[7]),
-
-        # D((
-        #     7, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.05, 0.3],
-        #         [100, 0.03, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[7]),
-
-        # D((
-        #     7, [n_vis, 588, 1000],
-        #     [
-        #         [100, 0.05, True, 1, 0.05, 0.3],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[7])
-
-    )
-
-    return __job_queue
-
-
-def main():
-
-    logging.basicConfig(level=logging.DEBUG)
-    log.info('Workflow main()')
-
-    for job in job_queue():
-        log.info('Evaluating job: %s', job)
-        if not job.is_done():
-            job.perform()
-
-
-if __name__ == '__main__':
-    main()

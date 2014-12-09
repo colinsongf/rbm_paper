@@ -54,7 +54,7 @@ class RBM():
 
         # initialize input layer for standalone RBM
         if input is None:
-            input = T.matrix('input')
+            input = T.matrix('input', dtype=theano.config.floatX)
         self.input = input
 
         #   if weights are not provided, initialize them

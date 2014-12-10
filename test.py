@@ -32,7 +32,7 @@ def test_rbm():
 
     log.info('Testing RBM')
     rbm = RBM(32 * 24, 100)
-    # util.display_RBM(rbm, 32, 24)
+    analysis.display_RBM(rbm, 32, 24)
 
     #   trainset loading
     cls_count = 9
@@ -44,7 +44,7 @@ def test_rbm():
     cost, time, hid_act = rbm.train(
         X_mnb, **{'epochs': 5, 'eps': 0.05, 'spars': 0.05, 'spars_cost': 6.0})
 
-    util.display_RBM(rbm, 32, 24)
+    analysis.display_RBM(rbm, 32, 24)
 
 
 def test_dbn():
@@ -80,7 +80,7 @@ def test_dbn_mlp():
 
     assert job.is_done()
 
-    dbn = job.results[0]
+    dbn = job.results()[0]
 
     log.info("Fine tuning")
     mlp = dbn.to_mlp()

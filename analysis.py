@@ -281,6 +281,10 @@ def f_macro(truth, prediction, beta=1.0):
                 else:
                     TN += 1
 
+        if TP == 0:
+            scores[cls] = 0.0
+            continue
+
         precision = TP / float(TP + FP)
         recall = TP / float(TP + FN)
         f_score = (1.0 + beta ** 2) * precision * recall \

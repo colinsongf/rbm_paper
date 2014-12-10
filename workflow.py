@@ -7,6 +7,7 @@ Also provides data handling.
 
 import logging
 import util
+import analysis
 from rbm import RBM
 from dbn import DBN
 import numpy as np
@@ -35,27 +36,26 @@ class Job(object):
     care of storing results to the hard drive (zipped pickle).
     """
 
-    def __init__(self, file_name_base):
+    def __init__(self):
         """
         Init for Job.
-
-        :param file_name_base: A string defining a file name
-            (without folders or extension) under which job
-            results should be stored.
         """
-        self.file_name_base = file_name_base
 
-        self.results = util.unpickle_unzip(
-            DIR + self.file_name_base + '.zip')
+    def results(self):
+        if getattr(self, '_results', False) is False:
+            self._results = util.unpickle_unzip(
+                DIR + self.file_name_base() + '.zip')
+
+        return self._results
 
     def is_done(self):
-        return self.results is not None
+        return self.results() is not None
 
     def perform(self):
 
-        self.results = self._perform()
-        util.pickle_zip(self.results,
-                        DIR + self.file_name_base + '.zip')
+        self._results = self._perform()
+        util.pickle_zip(self._results,
+                        DIR + self.file_name_base() + '.zip')
 
     @abc.abstractmethod
     def _perform(self):
@@ -64,11 +64,19 @@ class Job(object):
         """
         pass
 
+    @abc.abstractmethod
+    def file_name_base(self):
+        """
+        Retruns a unique filename base (no folder nor extension)
+        for this job.
+        """
+        pass
+
     def __str__(self):
-        return self.file_name_base
+        return self.file_name_base()
 
     def __repr__(self):
-        return self.file_name_base
+        return self.file_name_base()
 
 
 class RbmJob(Job):
@@ -76,25 +84,20 @@ class RbmJob(Job):
     A Job for traning a single RBM.
     """
 
-    @classmethod
-    def params_to_string(cls, params):
-        return 'RBM {:02d}_class {:03d}_n_vis {:03d}_n_hid '\
-            '{:03d}_epoch {:.3f}_eps {:b}_pcd {:02d}_steps {:.3f}_spars '\
-            '{:.3f}_spars_cost'.format(*params)
-
     def __init__(self, params, train_data):
         """
         Params for RBM training are in a tuple as follows:
         (cls_count, n_vis, n_hid, epochs, epsilon, pcd, steps,
             spars, spars_cost)
         """
+
         self.params = params
         self.train_data = train_data
 
-        #   job results are stored in the file, attempt to load it
-        file_name_base = RbmJob.params_to_string(params)
-
-        super(RbmJob, self).__init__(file_name_base)
+    def file_name_base(self):
+        return 'RBM {:02d}_class {:03d}_n_vis {:03d}_n_hid '\
+            '{:03d}_epoch {:.3f}_eps {:b}_pcd {:02d}_steps {:.3f}_spars '\
+            '{:.3f}_spars_cost'.format(*self.params)
 
     def _perform(self):
 
@@ -102,9 +105,9 @@ class RbmJob(Job):
         rbm = RBM(n_vis=p[1], n_hid=p[2])
         cost, time, hid_act = rbm.train(self.train_data, *self.params[3:])
 
-        util.display_RBM(
+        analysis.display_RBM(
             rbm, 32, 24, onscreen=False,
-            image_file_name=DIR_IMG + self.file_name_base + '.png')
+            image_file_name=DIR_IMG + self.file_name_base() + '.png')
 
         return (rbm, cost, time, hid_act)
 
@@ -113,18 +116,6 @@ class DbnPretrainJob(Job):
     """
     A Job for pretraning a single DBN as a stack of RBMs.
     """
-
-    @classmethod
-    def params_to_string(cls, params):
-        r_val = 'DBN {:d}_class {:s}_layers'.format(
-            params[0], "_".join([str(x) for x in params[1]]))
-
-        for rbm_ind, rbm_param in enumerate(params[2]):
-            r_val += ' RBM{:d}_{:03d}_epoch {:.3f}_eps {:b}_pcd '\
-                '{:02d}_steps {:.3f}_spars {:.3f}_spars_cost'.format(
-                    rbm_ind, *rbm_param)
-
-        return r_val
 
     def __init__(self, params, X_train, y_train):
         """
@@ -138,17 +129,26 @@ class DbnPretrainJob(Job):
         self.X_train = X_train
         self.y_train = y_train
 
-        #   job results are stored in the file, attempt to load it
-        file_name_base = DbnPretrainJob.params_to_string(params)
+    def file_name_base(self):
+        r_val = 'DBN_pretrain {:d}_class {:s}_layers'.format(
+            self.params[0], "_".join([str(x) for x in self.params[1]]))
 
-        super(DbnPretrainJob, self).__init__(file_name_base)
+        for rbm_ind, rbm_param in enumerate(self.params[2]):
+            r_val += ' RBM{:d}_{:03d}_epoch {:.3f}_eps {:b}_pcd '\
+                '{:02d}_steps {:.3f}_spars {:.3f}_spars_cost'.format(
+                    rbm_ind, *rbm_param)
+
+        return r_val
 
     def _perform(self):
 
         p = self.params
         class_count = p[0]
         layer_sizes = p[1]
-        rbm_params = p[2]
+        #   make a copy of rbm-param list because we might
+        #   modify it for training, and we don't want to
+        #   affect the original
+        rbm_params = list(p[2])
 
         dbn = DBN(layer_sizes, class_count)
 
@@ -163,14 +163,76 @@ class DbnPretrainJob(Job):
 
             #   create the DBN, then replace the first
             #   RBM with the one already trained
-            dbn.rbms[0] = first_rbm_job.results[0]
+            dbn.rbms[0] = first_rbm_job.results()[0]
 
             #   make sure it's skipped in DBN training
             rbm_params[0] = None
 
-        train_res = dbn.train(self.X_train, self.y_train, rbm_params)
+        train_res = dbn.pretrain(self.X_train, self.y_train, rbm_params)
 
         return (dbn, train_res)
+
+
+class DbnMlpJob(Job):
+    """
+    A job for training a deep net by first
+    pretraining the net as a DBN, and then fine-tuning
+    as a MLP
+    """
+
+    def __init__(self, params, X_train, y_train):
+        """
+        Params for DBN-MLP training are in a tuple as follows:
+        (cls_count, layer_size_array, rbm_params, ft_epoch, ft_eps),
+        where rbm_params is an iterable containing one tuple
+        per RBM. The tuple consists of RBM training params:
+        (epochs, epsilon, pcd, steps, spars, spars_cost).
+        ft_epoch is the number of fine-tuning epochs and
+        ft_eps is the learning rate in fine-tuning.
+        """
+        self.params = params
+        self.X_train = X_train
+        self.y_train = y_train
+
+    def file_name_base(self):
+        r_val = 'DBN_MLP {:d}_class {:s}_layers'.format(
+            self.params[0], "_".join([str(x) for x in self.params[1]]))
+
+        for rbm_ind, rbm_param in enumerate(self.params[2]):
+            r_val += ' RBM{:d}_{:03d}_epoch {:.3f}_eps {:b}_pcd '\
+                '{:02d}_steps {:.3f}_spars {:.3f}_spars_cost'.format(
+                    rbm_ind, *rbm_param)
+
+        r_val += " MLP_FT {:03d}_epoch {:.3f}_eps".format(
+            self.params[3], self.params[4])
+
+        return r_val
+
+    def pretraining_job(self):
+        """
+        Returns the pretraining aspect of this
+        job (a DbnPretrainJob instance).
+        """
+        return DbnPretrainJob(
+            self.params[:3], self.X_train, self.y_train)
+
+    def _perform(self):
+
+        fine_tune_epoch = self.params[3]
+        fine_tune_eps = self.params[4]
+
+        #   pre-train DBN as a sub-job
+        pretrain_job = self.pretraining_job()
+        if not pretrain_job.is_done():
+            pretrain_job.perform()
+
+        #   fine tuning
+        mlp = pretrain_job.results()[0].to_mlp()
+        train_res = mlp.train(self.X_train, self.y_train,
+                              fine_tune_epoch, fine_tune_eps)
+
+        return (mlp, train_res)
+
 
 #   Raw data from the trainset
 #   Cached here to avoid duplicate loading.
@@ -185,10 +247,13 @@ __data = None
 def get_data():
     """
     Returns the data for the workflow: a tuple of two
-    dicts (data_train, data_test). Each dictionary maps class
+    dicts (data_train, data_test). data_train maps class
     counts (integers indicating how many classes are used)
     to a tuple of form (X_mnb, y_mnb) where X_mnb are data samples
     split into minibatches and y are corresponding labels.
+    data_test maps class counts to a tuple of form (X, y) where
+    X are data samples and y are corresponding labels, NOT
+    split into minibatches.
 
     The data is lazily initialized into the global __data variable.
     """

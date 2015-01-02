@@ -12,6 +12,7 @@ from io import BytesIO
 import pickle
 import theano
 from time import time
+from datetime import date
 
 log = logging.getLogger(__name__)
 
@@ -363,3 +364,79 @@ def cost_minimization(inputs, cost, params, epochs, eps, X_mnb, y_mnb):
              (sum(epoch_times)) / 60.0)
 
     return epoch_costs, epoch_times
+
+
+def write_ndarray(ndarray, file, formatter=None, separators=None):
+    """
+    Writes a numpy array into a file.
+
+    :param ndarray: The array to write to file.
+    :param file: File object in which to write.
+    :param formatter: Formatting string to be used on each
+        numpy array element if None (default), the '{}' is used.
+    :param separators: A list of separator tokens to be used
+        in between of array elements.
+    """
+
+    shape = ndarray.shape
+    #   get cumulative sizes of each dimension
+    dim_sizes = [
+        np.prod(shape[(i + 1):], dtype=int) for i in range(0, len(shape))]
+
+    #   prepare the separators
+    if separators is None:
+        separators = [os.linesep] * len(shape)
+        separators[-1] = ' '
+
+    #   default formatter
+    if formatter is None:
+        formatter = "{}"
+
+    #   write all the array elements
+    for i, n in enumerate(ndarray.reshape(ndarray.size, )):
+        file.write(formatter.format(n))
+        sep_ind = [(i + 1) % ds for ds in dim_sizes].index(0)
+        file.write(separators[sep_ind])
+
+
+def store_mlp_ascii(mlp, file_path):
+    """
+    Stores a MLP into an ASCII file.
+
+    :param mlp: A MLP instance to store.
+    :param file_path: File path to store it to.
+    """
+
+    log.info("Storing MLP to file: %s", file_path)
+
+    #   first info in the ascii file is the layer sizes
+    layer_sizes = [32 * 24]
+    for hid_lay in mlp.hidden_layers:
+        layer_sizes.append(hid_lay.b.get_value().size)
+    layer_sizes.append(mlp.regression_layer.b.get_value().size)
+
+    with open(file_path, "w") as file:
+
+        def ln(string):
+            file.write(string + os.linesep)
+
+        ln("# Multilayer-perceptron, exported from Theano+Python DBN-MLP")
+        ln("# Author: Florijan Stamenkovic (florijan.stameknovic@gmail.com")
+        ln("# Date: {}".format(date.today()))
+        ln("#")
+        ln("# Non-comment lines are organized as follows:")
+        ln("#   - first come layer sizes (visible -> hidden -> softmax")
+        ln("#   - then for each layer (except visible):")
+        ln("#       - first the weights to previous layer in N lines where N "
+            "is number of neurons of previous layer")
+        ln("#       - then biases for that layer (in a single line)")
+        ln("# Enjoy!!!")
+
+        ln(" ".join([str(ls) for ls in layer_sizes]))
+
+        for hl in mlp.hidden_layers:
+            write_ndarray(hl.W.get_value(), file, "{:.06f}")
+            write_ndarray(hl.b.get_value(), file, "{:.06f}", [os.linesep])
+
+        write_ndarray(mlp.regression_layer.W.get_value(), file, "{:.06f}")
+        write_ndarray(mlp.regression_layer.b.get_value(), file, "{:.06f}")

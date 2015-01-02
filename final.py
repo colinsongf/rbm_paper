@@ -202,11 +202,33 @@ def evaluate():
                           os.path.join(DIR, "precision_recall_final.pdf"))
 
 
+def train_final():
+    """
+    Trains the final classifier and returns it.
+    """
+
+    log.info("Training final classifier")
+
+    #   attempt to load an already trained classifier for this fold
+    classifier_path = os.path.join(DIR, "classifier_final.zip")
+    classifier = util.unpickle_unzip(classifier_path)
+    if classifier is None:
+        #   didn't find an existing classifier, so train one
+        classifier = train_classifier(__X, __y)
+        #   store classifier for the future
+        util.pickle_zip(classifier, classifier_path)
+
+    return classifier
+
+
 def main():
     logging.basicConfig(level=logging.DEBUG)
     log.info("Final DBN/MLP evaluation for ZEMRIS dataset")
 
-    evaluate()
+    # evaluate()
+    classifier = train_final()
+    ascii_path = os.path.join(DIR, "classifier_final_ascii.txt")
+    util.store_mlp_ascii(classifier, ascii_path)
 
 if __name__ == '__main__':
     main()

@@ -339,11 +339,12 @@ def cost_minimization(inputs, cost, params, epochs, eps, X_mnb, y_mnb):
 
     #   things we'll track through training, for reporting
     epoch_costs = []
-    epoch_times = [time()]
+    epoch_times = []
 
     #   iterate through the epochs
     for epoch in range(epochs):
         log.info('Starting epoch %d', epoch)
+        epoch_t0 = time()
 
         #   iterate through the minibatches
         batch_costs = []
@@ -351,14 +352,14 @@ def cost_minimization(inputs, cost, params, epochs, eps, X_mnb, y_mnb):
             batch_costs.append(train_model(X_batch, y_batch))
 
         epoch_costs.append(np.array(batch_costs).mean())
-        epoch_times.append(time())
+        epoch_times.append(time() - epoch_t0)
         log.info(
             'Epoch cost %.5f, duration %.2f sec',
             epoch_costs[-1],
-            epoch_times[-1] - epoch_times[-2]
+            epoch_times[-1]
         )
 
     log.info('Training duration %.2f min',
-             (epoch_times[-1] - epoch_times[0]) / 60.0)
+             (sum(epoch_times)) / 60.0)
 
     return epoch_costs, epoch_times

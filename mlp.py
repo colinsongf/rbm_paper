@@ -159,6 +159,20 @@ class MLP(object):
 
         return self.y_pred_f(X)
 
+    def predict_confidence(self, X):
+        """
+        Predicts label probabilities for given data.
+        Returns a numpy array of shape (N, n_lab)
+        where n_lab is the number of labels.
+
+        :param X: A numpy array of shape (N, n_dim).
+        """
+        if getattr(self, 'p_y_given_x_f', None) is None:
+            self.p_y_given_x_f = theano.function(
+                [self.input], self.regression_layer.p_y_given_x)
+
+        return self.p_y_given_x_f(X)
+
     def train(self, X_mnb, y_mnb, epochs, eps, weight_cost=1e-4):
         """
         Trains the RBM with the given data. Returns a tuple containing

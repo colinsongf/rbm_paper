@@ -167,7 +167,8 @@ def display_RBM(rbm, dim_y, dim_x, ratio=1.333,
         bias_img.show(title=image_title)
 
 
-def eval_estimator(estimator, class_count=9, name='Unknown_estimator'):
+def eval_estimator(estimator, class_count=9, name='Unknown_estimator',
+                   display_confusion=False):
     """
     Evaluates a single estimator performance on the
     ZEMRIS dataset.
@@ -190,9 +191,33 @@ def eval_estimator(estimator, class_count=9, name='Unknown_estimator'):
     acc = sum(y_test == y_test_pred) / float(len(y_test))
     f1_macro = f_macro(y_test, y_test_pred)
     log.info('\nEstimator: %r', name)
-    log.info('\tacc: %.2f, f1_macro: %.2f', acc, f1_macro)
-    log.info('\tConfusion matrix:\n%r',
-             confusion_matrix(y_test, y_test_pred))
+    log.info('\tacc: %.4f, f1_macro: %.4f', acc, f1_macro)
+    if display_confusion:
+        log.info('\tConfusion matrix:\n%r',
+                 confusion_matrix(y_test, y_test_pred))
+
+
+def eval_estimator_job_batch(jobs):
+    """
+    Allows easy estimation of a batch of jobs.
+    """
+    log.info("Evaluating fitted estimators")
+
+    #   first prepare a list of estimator jobs
+    estimator_jobs = []
+    for job in jobs:
+        if isinstance(job, wf.RbmJob):
+            continue
+
+        if isinstance(job, wf.DbnMlpJob):
+            estimator_jobs.append(job.pretraining_job())
+
+        estimator_jobs.append(job)
+
+    #   now evaluate those jobs
+    for job in estimator_jobs:
+        model = job.results()[0]
+        eval_estimator(model, name=job.file_name_base())
 
 
 def rbm_hid_act_per_cls(rbm, class_count=9, name='Unknown_RBM'):
@@ -247,26 +272,41 @@ def acc(truth, prediction):
     return sum / float(len(truth))
 
 
-def f_macro(truth, prediction, beta=1.0):
+def f_macro(truth, prediction, classes=None, beta=1.0, return_pr=False):
     """
     Calculates the F-macro measure (averaged over classes)
     for a given set of truth / prediction class label indices.
+    Returns the averaged F-score if return_pr parameter
+    is False, or a tuple (F_score, precision, recall) if
+    return_pr parameter is True.
 
     :param truth: An iterable of integers indicating
         true classes.
     :param prediction: An iterable of integers indicating
         predicted classes.
-    :param beta: Beta parameter of the f-measure.
+    :param classes: An iterable of ints indicating which
+        classes should be considered in calculating scores.
+        If None (default), then classes in [0, max(labels)]  are
+        considered.
+    :param beta: Beta parameter of the f-measure. Default
+        values is 1.0.
+    :param return_pr: If precision and recall scores should
+        be returned as well. If False (default), then only
+        the F-score is returned, otherwise a tuple containing
+        (f-score, precision, recall).
     """
 
     assert(len(truth) == len(prediction))
 
-    #   get the number of classes
-    cls_count = max(max(truth), max(prediction)) + 1
+    #   get the classes being consider in scoring
+    if classes is None:
+        classes = range(max(max(truth), max(prediction)) + 1)
 
     #   for each class calculate everything
-    scores = np.zeros(cls_count)
-    for cls in range(cls_count):
+    p_scores = []
+    r_scores = []
+    f_scores = []
+    for cls in classes:
 
         TP, FP, TN, FN = 0, 0, 0, 0
         for t, p in zip(truth, prediction):
@@ -282,16 +322,22 @@ def f_macro(truth, prediction, beta=1.0):
                     TN += 1
 
         if TP == 0:
-            scores[cls] = 0.0
-            continue
+            precision = 0.
+            recall = 0.
+            f_score = 0.
+        else:
+            precision = TP / float(TP + FP)
+            recall = TP / float(TP + FN)
+            f_score = (1.0 + beta ** 2) * precision * recall \
+                / (beta ** 2 * precision + recall)
+        p_scores.append(precision)
+        r_scores.append(recall)
+        f_scores.append(f_score)
 
-        precision = TP / float(TP + FP)
-        recall = TP / float(TP + FN)
-        f_score = (1.0 + beta ** 2) * precision * recall \
-            / (beta ** 2 * precision + recall)
-        scores[cls] = f_score
-
-    return scores.mean()
+    if return_pr:
+        return (np.mean(f_scores), np.mean(p_scores), np.mean(r_scores))
+    else:
+        return np.mean(f_scores)
 
 
 def confusion_matrix(truth, prediction):

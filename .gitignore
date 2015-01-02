@@ -10,3 +10,6 @@
 # workflow results (large!!!)
 workflow_queue*
 workflow_results*
+
+# final evaluation results
+final_results

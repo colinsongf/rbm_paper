@@ -10,6 +10,7 @@ import util
 import analysis
 from rbm import RBM
 from dbn import DBN
+from mlp import MLP
 import numpy as np
 import os
 import abc
@@ -230,6 +231,38 @@ class DbnMlpJob(Job):
         mlp = pretrain_job.results()[0].to_mlp()
         train_res = mlp.train(self.X_train, self.y_train,
                               fine_tune_epoch, fine_tune_eps)
+
+        return (mlp, train_res)
+
+
+class MlpJob(Job):
+    """
+    A job for training a MLP.
+    """
+
+    def __init__(self, params, X_train, y_train):
+        """
+        Params for MLP training are in a tuple as follows:
+        (cls_count, layer_size_array, ft_epoch, ft_eps)
+        ft_epoch is the number of fine-tuning epochs and
+        ft_eps is the learning rate in fine-tuning.
+        """
+        self.params = params
+        self.X_train = X_train
+        self.y_train = y_train
+
+    def file_name_base(self):
+        r_val = 'MLP {:d}_class {:s}_layers {:03d}_epoch {:.3f}_eps'.format(
+            self.params[0], "_".join([str(x) for x in self.params[1]]),
+            self.params[2], self.params[3])
+
+        return r_val
+
+    def _perform(self):
+
+        mlp = MLP(self.params[1])
+        train_res = mlp.train(self.X_train, self.y_train,
+                              self.params[2], self.params[3])
 
         return (mlp, train_res)
 

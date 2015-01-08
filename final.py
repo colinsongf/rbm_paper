@@ -29,10 +29,10 @@ __X, __y, __CLASSES = util.load_trainset()
 __CLASS_COUNT = len(__CLASSES)
 
 #   TODO remove!!
-print '\n\n\t****** REDUCING DATASET ********\n\n'
-mask = np.random.randint(0, 25, len(__X)) == 0
-__X = __X[mask]
-__y = __y[mask]
+# print '\n\n\t****** REDUCING DATASET ********\n\n'
+# mask = np.random.randint(0, 25, len(__X)) == 0
+# __X = __X[mask]
+# __y = __y[mask]
 
 
 def folds(sample_count, fold_count=10):
@@ -75,28 +75,27 @@ def train_classifier(X, y):
         a label index.
     """
 
-    log.error('\n\n\t****** REDUCING TRAINING ********\n\n')
-
     #   split data into minibatches
     X_mnb, y_mnb = util.create_minibatches(X, y, __CLASS_COUNT * 20)
 
     #   create a DBN and pretrain
     dbn = DBN([32 * 24, 600, 600], __CLASS_COUNT)
     pretrain_params = [
-        [10, 0.05, True, 1, 0.085, 0.1],
-        [10, 0.05, True, 1, 0.000, 0.0]
+        [80, 0.05, True, 1, 0.085, 0.1],
+        [80, 0.05, True, 1, 0.000, 0.0]
     ]
     dbn.pretrain(X_mnb, y_mnb, pretrain_params)
 
     #   fine-tuning
     mlp = dbn.to_mlp()
-    mlp.train(X_mnb, y_mnb, 15, 0.1)
+    mlp.train(X_mnb, y_mnb, 1000, 0.1)
 
     return mlp
 
 
-def plot_precision_recall(threshs, precisions, recalls,
-                          show=True, file_name=None):
+def plot_precision_recall(
+        threshs, precisions, recalls, above_thresh,
+        show=True, file_name=None):
     """
     Plots precisions and recalls against confidence
     threshholds.
@@ -116,6 +115,7 @@ def plot_precision_recall(threshs, precisions, recalls,
 
     plt.plot(threshs, precisions, label="Precision")
     plt.plot(threshs, recalls, label="Recall")
+    plt.plot(threshs, above_thresh, label="Above threshold")
     plt.xlim([0., 1.])
     plt.xticks(np.arange(0.0, 1.0, 0.1))
     plt.ylim([0.7, 1.])
@@ -148,6 +148,7 @@ def evaluate():
     f1_scores = np.zeros(fold_count)
     precisions = np.zeros((fold_count, threshs.size))
     recalls = np.zeros((fold_count, threshs.size))
+    above_thresh = np.zeros((fold_count, threshs.size))
 
     #   iterate over folds
     for fold_ind, fold_mask in enumerate(folds(len(__X), fold_count)):
@@ -193,12 +194,14 @@ def evaluate():
                 test_y, thresh_pred, range(__CLASS_COUNT), 1.0, True)
             precisions[fold_ind, i] = precision
             recalls[fold_ind, i] = recall
+            above_thresh[fold_ind, i] = np.logical_not(below_thresh).mean()
 
     #   report final data
     log.info("\n\nFinal F1: %.3f +- %.3f", f1_scores.mean(), np.std(f1_scores))
     precisions = precisions.mean(axis=0)
     recalls = recalls.mean(axis=0)
-    plot_precision_recall(threshs, precisions, recalls, True,
+    above_thresh = above_thresh.mean(axis=0)
+    plot_precision_recall(threshs, precisions, recalls, above_thresh, True,
                           os.path.join(DIR, "precision_recall_final.pdf"))
 
 

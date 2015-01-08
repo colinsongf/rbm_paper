@@ -394,9 +394,10 @@ def write_ndarray(ndarray, file, formatter=None, separators=None):
 
     #   write all the array elements
     for i, n in enumerate(ndarray.reshape(ndarray.size, )):
+        if i != 0:
+            sep_ind = [i % ds for ds in dim_sizes].index(0)
+            file.write(separators[sep_ind])
         file.write(formatter.format(n))
-        sep_ind = [(i + 1) % ds for ds in dim_sizes].index(0)
-        file.write(separators[sep_ind])
 
 
 def store_mlp_ascii(mlp, file_path):
@@ -432,11 +433,16 @@ def store_mlp_ascii(mlp, file_path):
         ln("#       - then biases for that layer (in a single line)")
         ln("# Enjoy!!!")
 
-        ln(" ".join([str(ls) for ls in layer_sizes]))
+        file.write(" ".join([str(ls) for ls in layer_sizes]))
 
         for hl in mlp.hidden_layers:
+            file.write(os.linesep)
             write_ndarray(hl.W.get_value(), file, "{:.06f}")
-            write_ndarray(hl.b.get_value(), file, "{:.06f}", [os.linesep])
+            file.write(os.linesep)
+            write_ndarray(hl.b.get_value(), file, "{:.06f}")
 
+        file.write(os.linesep)
         write_ndarray(mlp.regression_layer.W.get_value(), file, "{:.06f}")
+        file.write(os.linesep)
         write_ndarray(mlp.regression_layer.b.get_value(), file, "{:.06f}")
+        file.write(os.linesep)

@@ -217,7 +217,7 @@ def eval_estimator_job_batch(jobs):
     #   now evaluate those jobs
     for job in estimator_jobs:
         model = job.results()[0]
-        eval_estimator(model, name=job.file_name_base())
+        eval_estimator(model, name=str(job))
 
 
 def rbm_hid_act_per_cls(rbm, class_count=9, name='Unknown_RBM'):

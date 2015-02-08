@@ -7,7 +7,6 @@ Also provides data handling.
 
 import logging
 import util
-import analysis
 from rbm import RBM
 from dbn import DBN
 from mlp import MLP
@@ -20,14 +19,31 @@ log = logging.getLogger(__name__)
 
 #   the directory where workflow results are stored
 DIR = 'workflow_results' + os.sep
-DIR_IMG = DIR + 'img' + os.sep
+
+
+def wf_info_path():
+    return DIR + 'workflow_results_info.txt'
 
 #   ensure that the directories for storing workflow results exist
 if not os.path.exists(DIR):
     os.makedirs(DIR)
 
-if not os.path.exists(DIR_IMG):
-    os.makedirs(DIR_IMG)
+
+def wf_info():
+    """
+    Returns the workflow stored file information,
+    parsed into a dictionary. Each dictionary key is a
+    job __repr__, and value is file name.
+    """
+
+    if not os.path.exists(wf_info_path()):
+        return dict()
+
+    with open(wf_info_path()) as info_file:
+        lines = [l.strip() for l in info_file.readlines()]
+        file_names = [l[:l.find(" ")] for l in lines]
+        descripts = [l[l.find(" ") + 1:] for l in lines]
+        return dict(zip(descripts, file_names))
 
 
 class Job(object):
@@ -44,8 +60,15 @@ class Job(object):
 
     def results(self):
         if getattr(self, '_results', False) is False:
+
+            #   first try with the old convetion of storage
             self._results = util.unpickle_unzip(
-                DIR + self.file_name_base() + '.zip')
+                DIR + self.__repr__() + '.zip')
+
+            #   no file found for the old convetion, try new
+            file_name = wf_info().get(self.__repr__(), None)
+            if file_name is not None:
+                self._results = util.unpickle_unzip(DIR + file_name)
 
         return self._results
 
@@ -55,8 +78,19 @@ class Job(object):
     def perform(self):
 
         self._results = self._perform()
-        util.pickle_zip(self._results,
-                        DIR + self.file_name_base() + '.zip')
+
+        #   store results in a file, using the new convetion
+        file_name = None
+        counter = 1
+        while file_name is None or os.path.exists(DIR + file_name):
+            file_name = "{:04d}.zip".format(counter)
+            counter += 1
+        util.pickle_zip(self._results, DIR + file_name)
+
+        #   add an entry into the info file
+        with open(wf_info_path(), 'a') as info_file:
+            info_file.write(file_name + " ")
+            info_file.write(self.__repr__() + '\n')
 
     @abc.abstractmethod
     def _perform(self):
@@ -65,19 +99,8 @@ class Job(object):
         """
         pass
 
-    @abc.abstractmethod
-    def file_name_base(self):
-        """
-        Retruns a unique filename base (no folder nor extension)
-        for this job.
-        """
-        pass
-
     def __str__(self):
-        return self.file_name_base()
-
-    def __repr__(self):
-        return self.file_name_base()
+        return self.__repr__()
 
 
 class RbmJob(Job):
@@ -95,7 +118,7 @@ class RbmJob(Job):
         self.params = params
         self.train_data = train_data
 
-    def file_name_base(self):
+    def __repr__(self):
         return 'RBM {:02d}_class {:03d}_n_vis {:03d}_n_hid '\
             '{:03d}_epoch {:.3f}_eps {:b}_pcd {:02d}_steps {:.3f}_spars '\
             '{:.3f}_spars_cost'.format(*self.params)
@@ -105,10 +128,6 @@ class RbmJob(Job):
         p = self.params
         rbm = RBM(n_vis=p[1], n_hid=p[2])
         cost, time, hid_act = rbm.train(self.train_data, *self.params[3:])
-
-        analysis.display_RBM(
-            rbm, 32, 24, onscreen=False,
-            image_file_name=DIR_IMG + self.file_name_base() + '.png')
 
         return (rbm, cost, time, hid_act)
 
@@ -130,7 +149,7 @@ class DbnPretrainJob(Job):
         self.X_train = X_train
         self.y_train = y_train
 
-    def file_name_base(self):
+    def __repr__(self):
         r_val = 'DBN_pretrain {:d}_class {:s}_layers'.format(
             self.params[0], "_".join([str(x) for x in self.params[1]]))
 
@@ -195,7 +214,7 @@ class DbnMlpJob(Job):
         self.X_train = X_train
         self.y_train = y_train
 
-    def file_name_base(self):
+    def __repr__(self):
         r_val = 'DBN_MLP {:d}_class {:s}_layers'.format(
             self.params[0], "_".join([str(x) for x in self.params[1]]))
 
@@ -251,7 +270,7 @@ class MlpJob(Job):
         self.X_train = X_train
         self.y_train = y_train
 
-    def file_name_base(self):
+    def __repr__(self):
         r_val = 'MLP {:d}_class {:s}_layers {:03d}_epoch {:.3f}_eps'.format(
             self.params[0], "_".join([str(x) for x in self.params[1]]),
             self.params[2], self.params[3])

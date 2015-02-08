@@ -14,6 +14,7 @@ from dbn import DBN
 import util
 import analysis
 import matplotlib.pyplot as plt
+import math
 
 #   the directory where final results are stored
 DIR = 'final_results' + os.sep
@@ -95,7 +96,7 @@ def train_classifier(X, y):
 
 def plot_precision_recall(
         threshs, precisions, recalls, above_thresh,
-        show=True, file_name=None):
+        show=True, file_name=None, xlim=[0., 1.], ylim=[0., 1.]):
     """
     Plots precisions and recalls against confidence
     threshholds.
@@ -113,14 +114,14 @@ def plot_precision_recall(
     #   start plotting
     plt.figure(figsize=(12, 9), dpi=72)
 
-    plt.plot(threshs, precisions, label="Precision")
-    plt.plot(threshs, recalls, label="Recall")
-    plt.plot(threshs, above_thresh, label="Above threshold")
-    plt.xlim([0., 1.])
-    plt.xticks(np.arange(0.0, 1.0, 0.1))
-    plt.ylim([0.7, 1.])
-    plt.yticks(np.arange(0.7, 1.0, 0.025))
-    plt.xlabel("Classifier confidence threshold")
+    plt.plot(threshs, precisions, label="Preciznost")
+    plt.plot(threshs, recalls, label="Odziv")
+    plt.plot(threshs, above_thresh, label="Iznad praga")
+    plt.xlim(xlim)
+    plt.xticks(np.arange(*xlim, step=(xlim[1] - xlim[0]) / 10.))
+    plt.ylim(ylim)
+    plt.yticks(np.arange(*ylim, step=(ylim[1] - ylim[0]) / 10.))
+    plt.xlabel("Prag pouzdanosti klasifikacije")
     plt.legend(loc=3)
     plt.grid()
 
@@ -141,8 +142,9 @@ def evaluate():
     log.info("Evaluating best classifier using %d-fold cross-val", fold_count)
 
     #   confidence thresholds, used for calculating precision@recal
-    threshs = np.arange(101, dtype=float)
-    threshs /= threshs.max()
+    threshs = np.arange(101, dtype=float) * 6. / 100.
+    threshs = 1 - math.e ** (-threshs)
+    threshs += 1 - threshs[-1]
 
     #   evaluation data, per fold
     f1_scores = np.zeros(fold_count)
@@ -203,6 +205,9 @@ def evaluate():
     above_thresh = above_thresh.mean(axis=0)
     plot_precision_recall(threshs, precisions, recalls, above_thresh, True,
                           os.path.join(DIR, "precision_recall_final.pdf"))
+    plot_precision_recall(threshs, precisions, recalls, above_thresh, True,
+                          os.path.join(DIR, "precision_recall_final_det.pdf"),
+                          [0.8, 1.0], [0.9, 1.0])
 
 
 def train_final():
@@ -228,7 +233,7 @@ def main():
     logging.basicConfig(level=logging.DEBUG)
     log.info("Final DBN/MLP evaluation for ZEMRIS dataset")
 
-    # evaluate()
+    evaluate()
     classifier = train_final()
     ascii_path = os.path.join(DIR, "classifier_final_ascii.txt")
     util.store_mlp_ascii(classifier, ascii_path)

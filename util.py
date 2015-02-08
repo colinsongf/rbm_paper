@@ -385,7 +385,7 @@ def write_ndarray(ndarray, file, formatter=None, separators=None):
 
     #   prepare the separators
     if separators is None:
-        separators = [os.linesep] * len(shape)
+        separators = ['\n'] * len(shape)
         separators[-1] = ' '
 
     #   default formatter
@@ -419,7 +419,7 @@ def store_mlp_ascii(mlp, file_path):
     with open(file_path, "w") as file:
 
         def ln(string):
-            file.write(string + os.linesep)
+            file.write(string + '\n')
 
         ln("# Multilayer-perceptron, exported from Theano+Python DBN-MLP")
         ln("# Author: Florijan Stamenkovic (florijan.stameknovic@gmail.com")
@@ -436,13 +436,13 @@ def store_mlp_ascii(mlp, file_path):
         file.write(" ".join([str(ls) for ls in layer_sizes]))
 
         for hl in mlp.hidden_layers:
-            file.write(os.linesep)
+            file.write('\n')
             write_ndarray(hl.W.get_value(), file, "{:.06f}")
-            file.write(os.linesep)
+            file.write('\n')
             write_ndarray(hl.b.get_value(), file, "{:.06f}")
 
-        file.write(os.linesep)
+        file.write('\n')
         write_ndarray(mlp.regression_layer.W.get_value(), file, "{:.06f}")
-        file.write(os.linesep)
+        file.write('\n')
         write_ndarray(mlp.regression_layer.b.get_value(), file, "{:.06f}")
-        file.write(os.linesep)
+        file.write('\n')

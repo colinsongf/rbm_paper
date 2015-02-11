@@ -10,6 +10,9 @@ from zipfile import ZipFile, ZIP_DEFLATED
 import os
 from io import BytesIO
 import pickle
+import theano
+from time import time
+from datetime import date
 
 log = logging.getLogger(__name__)
 
@@ -84,161 +87,6 @@ def create_minibatches(X, y, size, shuffle=True):
         return batches_X, batches_y
     else:
         return batches_X
-
-
-def display_array(a, dim_y, dim_x, scale=False):
-    """
-    Displays an array.
-
-    :param a: The array to display.
-    :param dim_y: Height of the image (pixels).
-    :param dim_x: Width of the image (pixels).
-    :param scale: If array values should be scaled
-        to the [0, 1] interval, or displayed 'as is'
-    """
-
-    a = np.array(a, copy=True, dtype=np.float)
-
-    if scale:
-        a -= a.min()
-        a /= max(a.max(), 0.000001)
-        a *= 255
-        a = np.array(a, dtype=np.uint8)
-
-    a = a.reshape((dim_y, dim_x)) * 255
-
-    img = Image.fromarray(a)
-    img.show()
-
-
-def display_weights(W, dim_y, dim_x, ratio=1.333,
-                    onscreen=True, image_title='weights',
-                    image_file_name=None):
-    """
-    Displays the visualization of neural net (RBM) weights,
-    and optionally saves the image. Weights are grouped per
-    hidden neuron, each hidden neuron then displayed as a rectangle
-    of dim_y height and dim_x width. Those rectangles are then
-    arranged into a grid. This representation is typically
-    useful for the first layer of weights in an RBM that works
-    with images.
-
-    :param W: The weight matrix to be displayed. Of dimensions
-        (n_vis, n_hid), where n_vis is the dimensionality of
-        the lower, visible layer that W connects, and is equal
-        to dim_y * dim_x.
-
-    :param dim_y: Height of the image represented by the
-        visible layer.
-
-    :param dim_x: Width of the image represented by the
-        visible layer.
-
-    :param ratio: The desired ratio of the resulting image.
-        Note that it might be impossible to get exactly the desired
-        ratio, depending on dim_x, dim_y and the number of images.
-
-    :param onscreen: If the image should be displayed onscreen.
-
-    :param image_title: Name to be displayed with the displayed image.
-
-    :param image_file_name: Name of the file where the image should
-        be stored. If None, the image is not stored.
-    """
-    log.info('Displaying weights')
-
-    n_vis, n_hid = W.shape
-
-    #   compose the hidden unit weights into a single image
-    #   we use an array that will hold all the pixels of all hiddden / visible
-    #   weights, plus a single pixel line between and around
-
-    #   calculate the number of rows and and columns required to get
-    #   the desired ratio in an image displaying all hidden units
-    rows = (dim_x * n_hid / (ratio * dim_y)) ** 0.5
-    cols = int(math.ceil(ratio * dim_y * rows / dim_x))
-    rows = int(math.ceil(rows))
-    if (rows - 1) * cols >= n_hid:
-        rows -= 1
-    if (cols - 1) * rows >= n_hid:
-        cols -= 1
-
-    margin = 3
-    img_array = np.ones((rows * dim_y + (rows + 1) * margin,
-                         cols * dim_x + (cols + 1) * margin),
-                        dtype=np.uint8)
-    img_array *= 128
-
-    #   normalize so that the weight mean is at 0.5
-    scale = max(W.max() - W.mean(), W.mean() - W.min()) * 2.0
-    W = W * 255 / scale
-    W = W - W.min()
-
-    #   iterate though the hidden units
-    for hid_ind, hid_weights in enumerate(W.T):
-
-        # get the position of the hidden unit in the image grid
-        row_ind = math.floor(hid_ind / cols)
-        col_ind = math.floor(hid_ind % cols)
-
-        #   map the hidden unit weights into image
-        y = row_ind * (dim_y + margin) + margin
-        x = col_ind * (dim_x + margin) + margin
-        img_array[y:y + dim_y, x:x + dim_x] = hid_weights.reshape(
-            (dim_y, dim_x))
-
-    image = Image.fromarray(img_array)
-
-    #   show image onscren
-    if onscreen:
-        image.show(title=image_title)
-
-    #   if given the image file name, save it to disk
-    if image_file_name is not None:
-        image.save(image_file_name)
-
-
-def display_RBM(rbm, dim_y, dim_x, ratio=1.333,
-                onscreen=True, image_title='RBM',
-                image_file_name=None):
-    """
-    Displays the visualization of features of the given rbm on screen,
-    and optionally saves the image. A feature is a set of weights
-    from a single hidden unit to all the visible ones. features
-    are aranged into rows and columns.
-
-    Useful for RBMs that work with images.
-
-    :param rbm: The RBM for which features are to be visualized.
-
-    :param dim_y: Height of the image (visible layer).
-
-    :param dim_x: Width of the image (visible layer).
-
-    :param ratio: The desired ratio of the resulting image.
-        Note that it might be impossible to get exactly the desired
-        ratio, depending on dim_x, dim_y and the number of images.
-
-    :param onscreen: If the image should be displayed onscreen.
-
-    :param image_title: Name to be displayed with the displayed image.
-
-    :param image_file_name: Name of the file where the image should
-        be stored. If None, the image is not stored.
-    """
-    log.info('Displaying RBM')
-    display_weights(rbm.W.get_value(), dim_y, dim_x, ratio,
-                    onscreen, image_title, image_file_name)
-
-    #   now handle visible biases
-    bias_img_array = rbm.b_vis.get_value().copy().reshape((dim_y, dim_x))
-    bias_img_array -= bias_img_array.min()
-    bias_img_array /= max(bias_img_array.max(), 0.000001)
-    bias_img_array *= 255
-    bias_img_array = np.array(bias_img_array, dtype=np.uint8)
-    bias_img = Image.fromarray(bias_img_array)
-    if onscreen:
-        bias_img.show(title=image_title)
 
 
 def load_trainset():
@@ -444,82 +292,157 @@ def lin_reducer(start, end, epochs=100):
     return __lin_reducer(start, (start - end) / float(epochs))
 
 
-def f_macro(truth, prediction, beta=1.0):
+def cost_minimization(inputs, cost, params, epochs, eps, X_mnb, y_mnb):
     """
-    Calculates the F-macro measure (averaged over classes)
-    for a given set of truth / prediction class label indices.
+    Generic cost minimization function (gradient descent) for a
+    situaition where given input there are desired outputs.
 
-    :param truth: An iterable of integers indicating
-        true classes.
-    :param prediction: An iterable of integers indicating
-        predicted classes.
-    :param beta: Beta parameter of the f-measure.
+    :type inputs: iterable of Theano symbolic vars, 2 elements.
+    :param inputs: Symblic variables that are inputs to the cost function.
+        The iterable needs to consist of two elements, the first is a sym
+        variable for minibatch input (X), and the second is a sym for
+        minibatch outputs (y).
+
+    :type cost: Theano symbolic variable.
+    :param cost: The cost function which needs to be minimized.
+
+    :type params: iterable of theano symbolic vars
+    :param params: All the parameters which need to be optimized with
+        gradient descent.
+
+    :type epochs: int
+    :param epochs: Number of epochs (int) of training.
+
+    :type eps: float
+    :param eps: Learning rate.
+
+    :param X_mnb: Trainset split into minibatches. Thus,
+        X_mnb is an iterable containing numpy arrays of
+        (mnb_N, n_vis) shape, where mnb_N is the number of
+        samples in the minibatch.
+
+    :param y_mnb: Trainset label indices split into minibatches. Thus,
+        y_mnb is an iterable containing numpy arrays of
+        (mnb_N, ) shape, where mnb_N is the number of
+        samples in the minibatch.
     """
 
-    assert(len(truth) == len(prediction))
+    #   gradients and param updates
+    grads = [(p, theano.tensor.grad(cost=cost, wrt=p)) for p in params]
+    updates = [(p, p - eps * grad_p) for (p, grad_p) in grads]
 
-    #   get the number of classes
-    cls_count = max(max(truth), max(prediction)) + 1
+    # compiled training function
+    train_model = theano.function(
+        inputs=inputs,
+        outputs=cost,
+        updates=updates
+    )
 
-    #   for each class calculate everything
-    scores = np.zeros(cls_count)
-    for cls in range(cls_count):
+    #   things we'll track through training, for reporting
+    epoch_costs = []
+    epoch_times = []
 
-        TP, FP, TN, FN = 0, 0, 0, 0
-        for t, p in zip(truth, prediction):
-            if t == cls:
-                if p == cls:
-                    TP += 1
-                else:
-                    FN += 1
-            else:
-                if p == cls:
-                    FP += 1
-                else:
-                    TN += 1
+    #   iterate through the epochs
+    for epoch in range(epochs):
+        log.info('Starting epoch %d', epoch)
+        epoch_t0 = time()
 
-        precision = TP / float(TP + FP)
-        recall = TP / float(TP + FN)
-        f_score = (1.0 + beta ** 2) * precision * recall \
-            / (beta ** 2 * precision + recall)
-        scores[cls] = f_score
+        #   iterate through the minibatches
+        batch_costs = []
+        for batch_ind, (X_batch, y_batch) in enumerate(zip(X_mnb, y_mnb)):
+            batch_costs.append(train_model(X_batch, y_batch))
 
-    return scores.mean()
+        epoch_costs.append(np.array(batch_costs).mean())
+        epoch_times.append(time() - epoch_t0)
+        log.info(
+            'Epoch cost %.5f, duration %.2f sec',
+            epoch_costs[-1],
+            epoch_times[-1]
+        )
+
+    log.info('Training duration %.2f min',
+             (sum(epoch_times)) / 60.0)
+
+    return epoch_costs, epoch_times
 
 
-def confusion_matrix(truth, prediction):
+def write_ndarray(ndarray, file, formatter=None, separators=None):
     """
-    Calculates and returns the confusion matrix given
-    the truth and prediction vectors.
+    Writes a numpy array into a file.
 
-    :param truth: An iterable of integers indicating
-        true classes.
-    :param prediction: An iterable of integers indicating
-        predicted classes.
+    :param ndarray: The array to write to file.
+    :param file: File object in which to write.
+    :param formatter: Formatting string to be used on each
+        numpy array element if None (default), the '{}' is used.
+    :param separators: A list of separator tokens to be used
+        in between of array elements.
     """
-    assert(len(truth) == len(prediction))
 
-    #   get the number of classes
-    cls_count = max(max(truth), max(prediction)) + 1
+    shape = ndarray.shape
+    #   get cumulative sizes of each dimension
+    dim_sizes = [
+        np.prod(shape[(i + 1):], dtype=int) for i in range(0, len(shape))]
 
-    matrix = np.zeros((cls_count, cls_count))
-    for t, p in zip(truth, prediction):
-        matrix[t, p] += 1
+    #   prepare the separators
+    if separators is None:
+        separators = ['\n'] * len(shape)
+        separators[-1] = ' '
 
-    return matrix
+    #   default formatter
+    if formatter is None:
+        formatter = "{}"
+
+    #   write all the array elements
+    for i, n in enumerate(ndarray.reshape(ndarray.size, )):
+        if i != 0:
+            sep_ind = [i % ds for ds in dim_sizes].index(0)
+            file.write(separators[sep_ind])
+        file.write(formatter.format(n))
 
 
-def histogram(unit_prb, buckets=50):
+def store_mlp_ascii(mlp, file_path):
     """
-    Histograms unit (neuron) activations.
+    Stores a MLP into an ASCII file.
 
-    :param unit_prb: An iterable of probabilities
-        of unit activations (one float per unit).
-    :param buckets: An int indicating how many buckets
-        there should be in the histogram.
+    :param mlp: A MLP instance to store.
+    :param file_path: File path to store it to.
     """
-    hist = np.zeros(buckets, dtype=float)
-    for prb in unit_prb:
-        hist[min(buckets - 1, int(prb * buckets))] += 1
 
-    return hist / len(unit_prb)
+    log.info("Storing MLP to file: %s", file_path)
+
+    #   first info in the ascii file is the layer sizes
+    layer_sizes = [32 * 24]
+    for hid_lay in mlp.hidden_layers:
+        layer_sizes.append(hid_lay.b.get_value().size)
+    layer_sizes.append(mlp.regression_layer.b.get_value().size)
+
+    with open(file_path, "w") as file:
+
+        def ln(string):
+            file.write(string + '\n')
+
+        ln("# Multilayer-perceptron, exported from Theano+Python DBN-MLP")
+        ln("# Author: Florijan Stamenkovic (florijan.stameknovic@gmail.com")
+        ln("# Date: {}".format(date.today()))
+        ln("#")
+        ln("# Non-comment lines are organized as follows:")
+        ln("#   - first come layer sizes (visible -> hidden -> softmax")
+        ln("#   - then for each layer (except visible):")
+        ln("#       - first the weights to previous layer in N lines where N "
+            "is number of neurons of previous layer")
+        ln("#       - then biases for that layer (in a single line)")
+        ln("# Enjoy!!!")
+
+        file.write(" ".join([str(ls) for ls in layer_sizes]))
+
+        for hl in mlp.hidden_layers:
+            file.write('\n')
+            write_ndarray(hl.W.get_value(), file, "{:.06f}")
+            file.write('\n')
+            write_ndarray(hl.b.get_value(), file, "{:.06f}")
+
+        file.write('\n')
+        write_ndarray(mlp.regression_layer.W.get_value(), file, "{:.06f}")
+        file.write('\n')
+        write_ndarray(mlp.regression_layer.b.get_value(), file, "{:.06f}")
+        file.write('\n')

@@ -1,18 +1,15 @@
 """
-A workflow for running RBM / DBN training
-in batches.
-
-The idea is to make a queue of RBMs to train,
-and let it all run. Each queue job is stored
-when done, so when the queue is interrupted
-training progress is lost only for the current
-job.
+Provides infrastructure for defining
+job batches, where each "job" is the
+traning of a an RBM, a DBN, MLP or whatever.
+Also provides data handling.
 """
 
 import logging
 import util
 from rbm import RBM
 from dbn import DBN
+from mlp import MLP
 import numpy as np
 import os
 import abc
@@ -22,43 +19,78 @@ log = logging.getLogger(__name__)
 
 #   the directory where workflow results are stored
 DIR = 'workflow_results' + os.sep
-DIR_IMG = DIR + 'img' + os.sep
+
+
+def wf_info_path():
+    return DIR + 'workflow_results_info.txt'
 
 #   ensure that the directories for storing workflow results exist
 if not os.path.exists(DIR):
     os.makedirs(DIR)
 
-if not os.path.exists(DIR_IMG):
-    os.makedirs(DIR_IMG)
+
+def wf_info():
+    """
+    Returns the workflow stored file information,
+    parsed into a dictionary. Each dictionary key is a
+    job __repr__, and value is file name.
+    """
+
+    if not os.path.exists(wf_info_path()):
+        return dict()
+
+    with open(wf_info_path()) as info_file:
+        lines = [l.strip() for l in info_file.readlines()]
+        file_names = [l[:l.find(" ")] for l in lines]
+        descripts = [l[l.find(" ") + 1:] for l in lines]
+        return dict(zip(descripts, file_names))
 
 
 class Job(object):
     """
     A single job to perform. Abstract class for concrete
-    RBM and DBN jobs. Defines interface and takes care of result storing.
+    RBM, DBN, whatever jobs. Defines interface and takes
+    care of storing results to the hard drive (zipped pickle).
     """
 
-    def __init__(self, file_name_base):
+    def __init__(self):
         """
         Init for Job.
-
-        :param file_name_base: A string defining a file name
-            (without folders or extension) under which job
-            results should be stored.
         """
-        self.file_name_base = file_name_base
 
-        self.results = util.unpickle_unzip(
-            DIR + self.file_name_base + '.zip')
+    def results(self):
+        if getattr(self, '_results', False) is False:
+
+            #   first try with the old convetion of storage
+            self._results = util.unpickle_unzip(
+                DIR + self.__repr__() + '.zip')
+
+            #   no file found for the old convetion, try new
+            file_name = wf_info().get(self.__repr__(), None)
+            if file_name is not None:
+                self._results = util.unpickle_unzip(DIR + file_name)
+
+        return self._results
 
     def is_done(self):
-        return self.results is not None
+        return self.results() is not None
 
     def perform(self):
 
-        self.results = self._perform()
-        util.pickle_zip(self.results,
-                        DIR + self.file_name_base + '.zip')
+        self._results = self._perform()
+
+        #   store results in a file, using the new convetion
+        file_name = None
+        counter = 1
+        while file_name is None or os.path.exists(DIR + file_name):
+            file_name = "{:04d}.zip".format(counter)
+            counter += 1
+        util.pickle_zip(self._results, DIR + file_name)
+
+        #   add an entry into the info file
+        with open(wf_info_path(), 'a') as info_file:
+            info_file.write(file_name + " ")
+            info_file.write(self.__repr__() + '\n')
 
     @abc.abstractmethod
     def _perform(self):
@@ -68,23 +100,13 @@ class Job(object):
         pass
 
     def __str__(self):
-        return self.file_name_base
-
-    def __repr__(self):
-        return self.file_name_base
+        return self.__repr__()
 
 
 class RbmJob(Job):
-
     """
     A Job for traning a single RBM.
     """
-
-    @classmethod
-    def params_to_string(cls, params):
-        return 'RBM {:02d}_class {:03d}_n_vis {:03d}_n_hid '\
-            '{:03d}_epoch {:.3f}_eps {:b}_pcd {:02d}_steps {:.3f}_spars '\
-            '{:.3f}_spars_cost'.format(*params)
 
     def __init__(self, params, train_data):
         """
@@ -92,13 +114,14 @@ class RbmJob(Job):
         (cls_count, n_vis, n_hid, epochs, epsilon, pcd, steps,
             spars, spars_cost)
         """
+
         self.params = params
         self.train_data = train_data
 
-        #   job results are stored in the file, attempt to load it
-        file_name_base = RbmJob.params_to_string(params)
-
-        super(RbmJob, self).__init__(file_name_base)
+    def __repr__(self):
+        return 'RBM {:02d}_class {:03d}_n_vis {:03d}_n_hid '\
+            '{:03d}_epoch {:.3f}_eps {:b}_pcd {:02d}_steps {:.3f}_spars '\
+            '{:.3f}_spars_cost'.format(*self.params)
 
     def _perform(self):
 
@@ -106,30 +129,13 @@ class RbmJob(Job):
         rbm = RBM(n_vis=p[1], n_hid=p[2])
         cost, time, hid_act = rbm.train(self.train_data, *self.params[3:])
 
-        util.display_RBM(
-            rbm, 32, 24, onscreen=False,
-            image_file_name=DIR_IMG + self.file_name_base + '.png')
-
         return (rbm, cost, time, hid_act)
 
 
-class DbnJob(Job):
-
+class DbnPretrainJob(Job):
     """
-    A Job for traning a single DBN.
+    A Job for pretraning a single DBN as a stack of RBMs.
     """
-
-    @classmethod
-    def params_to_string(cls, params):
-        r_val = 'DBN {:d}_class {:s}_layers'.format(
-            params[0], "_".join([str(x) for x in params[1]]))
-
-        for rbm_ind, rbm_param in enumerate(params[2]):
-            r_val += ' RBM{:d}_{:03d}_epoch {:.3f}_eps {:b}_pcd '\
-                '{:02d}_steps {:.3f}_spars {:.3f}_spars_cost'.format(
-                    rbm_ind, *rbm_param)
-
-        return r_val
 
     def __init__(self, params, X_train, y_train):
         """
@@ -143,17 +149,26 @@ class DbnJob(Job):
         self.X_train = X_train
         self.y_train = y_train
 
-        #   job results are stored in the file, attempt to load it
-        file_name_base = DbnJob.params_to_string(params)
+    def __repr__(self):
+        r_val = 'DBN_pretrain {:d}_class {:s}_layers'.format(
+            self.params[0], "_".join([str(x) for x in self.params[1]]))
 
-        super(DbnJob, self).__init__(file_name_base)
+        for rbm_ind, rbm_param in enumerate(self.params[2]):
+            r_val += ' RBM{:d}_{:03d}_epoch {:.3f}_eps {:b}_pcd '\
+                '{:02d}_steps {:.3f}_spars {:.3f}_spars_cost'.format(
+                    rbm_ind, *rbm_param)
+
+        return r_val
 
     def _perform(self):
 
         p = self.params
         class_count = p[0]
         layer_sizes = p[1]
-        rbm_params = p[2]
+        #   make a copy of rbm-param list because we might
+        #   modify it for training, and we don't want to
+        #   affect the original
+        rbm_params = list(p[2])
 
         dbn = DBN(layer_sizes, class_count)
 
@@ -168,14 +183,107 @@ class DbnJob(Job):
 
             #   create the DBN, then replace the first
             #   RBM with the one already trained
-            dbn.rbms[0] = first_rbm_job.results[0]
+            dbn.rbms[0] = first_rbm_job.results()[0]
 
             #   make sure it's skipped in DBN training
             rbm_params[0] = None
 
-        train_res = dbn.train(self.X_train, self.y_train, rbm_params)
+        train_res = dbn.pretrain(self.X_train, self.y_train, rbm_params)
 
         return (dbn, train_res)
+
+
+class DbnMlpJob(Job):
+    """
+    A job for training a deep net by first
+    pretraining the net as a DBN, and then fine-tuning
+    as a MLP
+    """
+
+    def __init__(self, params, X_train, y_train):
+        """
+        Params for DBN-MLP training are in a tuple as follows:
+        (cls_count, layer_size_array, rbm_params, ft_epoch, ft_eps),
+        where rbm_params is an iterable containing one tuple
+        per RBM. The tuple consists of RBM training params:
+        (epochs, epsilon, pcd, steps, spars, spars_cost).
+        ft_epoch is the number of fine-tuning epochs and
+        ft_eps is the learning rate in fine-tuning.
+        """
+        self.params = params
+        self.X_train = X_train
+        self.y_train = y_train
+
+    def __repr__(self):
+        r_val = 'DBN_MLP {:d}_class {:s}_layers'.format(
+            self.params[0], "_".join([str(x) for x in self.params[1]]))
+
+        for rbm_ind, rbm_param in enumerate(self.params[2]):
+            r_val += ' RBM{:d}_{:03d}_epoch {:.3f}_eps {:b}_pcd '\
+                '{:02d}_steps {:.3f}_spars {:.3f}_spars_cost'.format(
+                    rbm_ind, *rbm_param)
+
+        r_val += " MLP_FT {:03d}_epoch {:.3f}_eps".format(
+            self.params[3], self.params[4])
+
+        return r_val
+
+    def pretraining_job(self):
+        """
+        Returns the pretraining aspect of this
+        job (a DbnPretrainJob instance).
+        """
+        return DbnPretrainJob(
+            self.params[:3], self.X_train, self.y_train)
+
+    def _perform(self):
+
+        fine_tune_epoch = self.params[3]
+        fine_tune_eps = self.params[4]
+
+        #   pre-train DBN as a sub-job
+        pretrain_job = self.pretraining_job()
+        if not pretrain_job.is_done():
+            pretrain_job.perform()
+
+        #   fine tuning
+        mlp = pretrain_job.results()[0].to_mlp()
+        train_res = mlp.train(self.X_train, self.y_train,
+                              fine_tune_epoch, fine_tune_eps)
+
+        return (mlp, train_res)
+
+
+class MlpJob(Job):
+    """
+    A job for training a MLP.
+    """
+
+    def __init__(self, params, X_train, y_train):
+        """
+        Params for MLP training are in a tuple as follows:
+        (cls_count, layer_size_array, ft_epoch, ft_eps)
+        ft_epoch is the number of fine-tuning epochs and
+        ft_eps is the learning rate in fine-tuning.
+        """
+        self.params = params
+        self.X_train = X_train
+        self.y_train = y_train
+
+    def __repr__(self):
+        r_val = 'MLP {:d}_class {:s}_layers {:03d}_epoch {:.3f}_eps'.format(
+            self.params[0], "_".join([str(x) for x in self.params[1]]),
+            self.params[2], self.params[3])
+
+        return r_val
+
+    def _perform(self):
+
+        mlp = MLP(self.params[1])
+        train_res = mlp.train(self.X_train, self.y_train,
+                              self.params[2], self.params[3])
+
+        return (mlp, train_res)
 
 
 #   Raw data from the trainset
@@ -191,10 +299,13 @@ __data = None
 def get_data():
     """
     Returns the data for the workflow: a tuple of two
-    dicts (data_train, data_test). Each dictionary maps class
+    dicts (data_train, data_test). data_train maps class
     counts (integers indicating how many classes are used)
-    to a tuple of form (X, y) where X are data samples and
-    y are labels. Both are numpy arrays.
+    to a tuple of form (X_mnb, y_mnb) where X_mnb are data samples
+    split into minibatches and y are corresponding labels.
+    data_test maps class counts to a tuple of form (X, y) where
+    X are data samples and y are corresponding labels, NOT
+    split into minibatches.
 
     The data is lazily initialized into the global __data variable.
     """
@@ -251,208 +362,3 @@ def get_data():
         __data = (data_train, data_test)
 
     return __data
-
-
-#   a gloabal variable that holds the job_queue list
-#   returned by the job_queue() function
-__job_queue = None
-
-
-def job_queue():
-    """
-    Returns a list of jobs (some done, some possibly not).
-    """
-
-    #   lazy init of a global variable
-    global __job_queue
-    if __job_queue is not None:
-        return __job_queue
-
-    d_train, d_test = get_data()
-
-    #   jobs, params for RBM training are:
-    #   (classes, n_vis, n_hid, epochs, epsilon, pcd, steps, spars, spars_cost)
-    n_vis = 32 * 24
-    # R = RbmJob
-    D = DbnJob
-    __job_queue = (
-        # R((1, n_vis, 144, 50, 0.05, False, 1, 0.1, 0.5), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, False, 1, 0.1, 0.1), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, False, 1, 0.1, 0.005), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, False, 1, 0.2, 0.5), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, False, 1, 0.2, 0.1), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, False, 1, 0.2, 0.005), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, True, 2, 0.2, 0.5), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, True, 2, 0.2, 0.1), d_train[1][0]),
-        # R((1, n_vis, 144, 50, 0.05, True, 2, 0.2, 0.005), d_train[1][0]),
-
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.05, 0.25), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.05, 0.075), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.05, 0.025), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.1, 0.25), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.1, 0.1), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.1, 0.025), d_train[3][0]),
-
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.075, 0.25), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.075, 0.075), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.125, 0.25), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, False, 1, 0.125, 0.075), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, True, 2, 0.125, 0.25), d_train[3][0]),
-        # R((3, n_vis, 276, 50, 0.05, True, 2, 0.125, 0.075), d_train[3][0]),
-
-        # R((9, n_vis, 432, 50, 0.05, False, 1, 0.10, 0.15), d_train[9][0]),
-        # R((9, n_vis, 432, 50, 0.05, False, 1, 0.10, 0.3), d_train[9][0]),
-        # R((9, n_vis, 432, 50, 0.05, False, 1, 0.075, 0.15), d_train[9][0]),
-        # R((9, n_vis, 432, 50, 0.05, False, 1, 0.075, 0.3), d_train[9][0]),
-        # R((9, n_vis, 432, 50, 0.05, False, 1, 0.05, 0.15), d_train[9][0]),
-        # R((9, n_vis, 432, 50, 0.05, False, 1, 0.05, 0.3), d_train[9][0]),
-
-        # R((9, n_vis, 588, 50, 0.05, False, 1, 0.10, 0.15), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, False, 1, 0.10, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, False, 2, 0.10, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, False, 1, 0.075, 0.15), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, False, 1, 0.075, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, False, 1, 0.05, 0.15), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, False, 1, 0.05, 0.3), d_train[9][0]),
-
-        # R((9, n_vis, 588, 50, 0.05, True, 2, 0.10, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 2, 0.075, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 1, 0.05, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 2, 0.05, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 4, 0.05, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 15, 0.05, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 2, 0.035, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 2, 0.065, 0.3), d_train[9][0]),
-        # R((9, n_vis, 588, 50, 0.05, True, 2, 0.0, 0.0), d_train[9][0]),
-
-        #   some DBN training!
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.05, 0.05],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.05, 0.3],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.085, 0.3],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        D((
-            9, [n_vis, 588, 500],
-            [
-                [100, 0.05, True, 1, 0.085, 0.15],
-                [50, 0.05, True, 1, 0.0, 0.0]
-            ]
-        ), *d_train[9]),
-
-        D((
-            9, [n_vis, 588, 500],
-            [
-                [30, 0.05, True, 1, 0.085, 0.15],
-                [50, 0.05, True, 1, 0.0, 0.0]
-            ]
-        ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.085, 0.05],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.1, 0.05],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.1, 0.3],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.15, 0.05],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.15, 0.3],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     9, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.0, 0.0],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[9]),
-
-        # D((
-        #     7, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.05, 0.3],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[7]),
-
-        # D((
-        #     7, [n_vis, 588, 500],
-        #     [
-        #         [100, 0.05, True, 1, 0.05, 0.3],
-        #         [100, 0.03, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[7]),
-
-        # D((
-        #     7, [n_vis, 588, 1000],
-        #     [
-        #         [100, 0.05, True, 1, 0.05, 0.3],
-        #         [50, 0.05, True, 1, 0.0, 0.0]
-        #     ]
-        # ), *d_train[7])
-
-    )
-
-    return __job_queue
-
-
-def main():
-
-    logging.basicConfig(level=logging.DEBUG)
-    log.info('Workflow main()')
-
-    for job in job_queue():
-        log.info('Evaluating job: %s', job)
-        if not job.is_done():
-            job.perform()
-
-
-if __name__ == '__main__':
-    main()

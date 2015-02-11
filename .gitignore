@@ -8,4 +8,8 @@
 .DS_Store
 
 # workflow results (large!!!)
-workflow_results/
+workflow_queue*
+workflow_results*
+
+# final evaluation results
+final_results

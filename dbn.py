@@ -6,11 +6,14 @@ from rbm import RBM
 import numpy as np
 import logging
 import util
+from mlp import MLP
+import theano
 
 log = logging.getLogger(__name__)
 
 
 class DBN(object):
+
     """
     Deep Belief Network class.
 
@@ -58,7 +61,7 @@ class DBN(object):
         #   these are the net's RBMs
         self.rbms = rbms
 
-    def classify(self, X):
+    def predict(self, X):
         """
         Classifies N samples, returns a numpy
         vector of shape (N, ).
@@ -98,10 +101,10 @@ class DBN(object):
         #   biggest probability
         return np.argmax(X_prb[:, :self.class_count], axis=1)
 
-    def train(self, X_mnb, y_mnb, params):
+    def pretrain(self, X_mnb, y_mnb, params):
         """
-        Training function for the DBN. Successively
-        trains the RBMs of the DBN.
+        Pretraining (greedy layer-wise) function for the DBN.
+        Successively trains the RBMs of the DBN.
 
         :param X_mnb: Training data, split into
             minibatches (an iterable of minibatches).
@@ -163,6 +166,43 @@ class DBN(object):
             #   convert X to input for the next rbm
             rbm_X = [rbm.hid_given_vis(r)[1] for r in rbm_X]
 
-        #   TODO parameter fine-tuning
-
         return rbm_train_res
+
+    def to_mlp(self):
+        """
+        Generates a multilayer perceptron from this DBN.
+        The results MLP does *not* share weights with
+        this DBN, they are all copied.
+        """
+
+        #   parameters we will initialize the MLP with
+        layer_sizes, W, b = [], [], []
+
+        #   layer sizes includes also the visible layer
+        layer_sizes.append(self.rbms[0].n_vis)
+
+        #   weights and biases for all the layers except for
+        #   the top, which is handled differently because of
+        #   class indicator neurons
+        for rbm in self.rbms[:-1]:
+            layer_sizes.append(rbm.n_hid)
+            W.append(theano.shared(rbm.W.get_value(), borrow=False))
+            b.append(theano.shared(rbm.b_hid.get_value(), borrow=False))
+
+        #   handle last layer, which contains layer indicator neurons
+        last_rbm = self.rbms[-1]
+        cls_cnt = self.class_count
+        #   first handle the layer with indicator neurons removed
+        layer_sizes.append(last_rbm.n_hid)
+        W.append(theano.shared(last_rbm.W.get_value()[cls_cnt:], borrow=False))
+        b.append(
+            theano.shared(last_rbm.b_hid.get_value(), borrow=False))
+        #   then handle the softmax layer
+        layer_sizes.append(cls_cnt)
+        W.append(
+            theano.shared(last_rbm.W.get_value()[:cls_cnt].T, borrow=False))
+        b.append(
+            theano.shared(last_rbm.b_vis.get_value()[:cls_cnt], borrow=False))
+
+        #   create and return the MLP
+        return MLP(layer_sizes, W, b)
